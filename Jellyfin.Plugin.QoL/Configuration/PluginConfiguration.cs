@@ -11,6 +11,9 @@ namespace Jellyfin.Plugin.QoL.Configuration;
 /// </summary>
 public sealed class PluginConfiguration : BasePluginConfiguration
 {
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
+    /// </summary>
     public PluginConfiguration()
     {
         SchemaVersion = 2;
