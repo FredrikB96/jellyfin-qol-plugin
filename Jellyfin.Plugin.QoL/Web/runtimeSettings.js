@@ -204,14 +204,9 @@
         const stored = readJsonStorage(CLIENT_STORAGE_KEY);
         const next = merge(CLIENT_DEFAULTS, stored || {});
 
-        // Preserve the Phase 13.1 client-local enrollment boundary during the
-        // migration. This flag is intentionally not synced through the user API.
         const enrollment = readJsonStorage(AIRNAV_ENROLLMENT_KEY);
         if (typeof enrollment?.enabled === 'boolean') next.airNavEnabled = enrollment.enabled;
 
-        // While the prototype launcher is still active it remains authoritative
-        // for the live enrollment flag. This compatibility read disappears once
-        // the launcher itself is migrated into the production bootstrap.
         try {
             const liveEnrollment = QoL.airNavClient?.getState?.();
             if (typeof liveEnrollment?.enabled === 'boolean') next.airNavEnabled = liveEnrollment.enabled;
@@ -305,8 +300,6 @@
     function applyKnownCompatibilitySettings(config, reason) {
         const results = {};
 
-        // Only call prototype APIs whose contract is already established. Input,
-        // profiles and gestures are deliberately not migrated in this pass.
         if (QoL.airScroll?.setBehavior && config.scroll?.behavior) {
             try {
                 QoL.airScroll.setBehavior(config.scroll.behavior);
@@ -365,8 +358,6 @@
 
         const payload = await apiRequest('JellyfinQoL/UserSettings');
 
-        // A logout or user switch during the request must never publish the old
-        // user's settings into the new session.
         if (getAccessToken() !== requestToken) {
             console.log(LOG, 'Discarded stale authenticated settings response.');
             return refresh(`${reason}:stale-auth`, { forceServer:true });
@@ -409,9 +400,6 @@
                 status = 'degraded';
                 console.warn(LOG, 'Authenticated settings hydration failed; keeping safe bootstrap settings.', error);
 
-                // Never keep a previous authenticated user's document after a
-                // failed user switch. If this token has never hydrated, publish
-                // bootstrap defaults plus this device's local state.
                 if (hydratedToken !== token) {
                     globalDocument = {};
                     userState = defaultsFromGlobal({});
@@ -541,14 +529,7 @@
     }
 
     // ---------------------------------------------------------------------
-    // Production profile projection.
-    //
-    // This is intentionally READ-ONLY in this migration step. The
-    // authoritative data remains runtimeConfig, which is resolved from
-    // server-global + user + client-local settings above.
-    //
-    // Existing prototype airKeybinds remains active until this projection has
-    // been verified. Input/recording/gesture ownership is migrated later.
+    // Production profile projection - Part 1: read-only compatibility.
     // ---------------------------------------------------------------------
 
     const PROFILE_ACTION_META = Object.freeze({
@@ -586,8 +567,7 @@
 
     function profileGetProfile(profileId = null) {
         const id = String(profileId || profileGetActiveProfileId());
-        const profile = profileItems()?.[id] || null;
-        return clone(profile);
+        return clone(profileItems()?.[id] || null);
     }
 
     function profileGetActiveProfile() {
@@ -606,102 +586,337 @@
         return profileGetActionMeta(action).textHandoff === true;
     }
 
+    function profileNormalizeModifiers(value) {
+        return {
+            ctrl: !!value?.ctrl,
+            alt: !!value?.alt,
+            shift: !!value?.shift,
+            meta: !!value?.meta
+        };
+    }
+
+    function profileNormalizeTrigger(value, adapter = '') {
+        if (!value || typeof value !== 'object') return null;
+
+        adapter = String(adapter || '').toLowerCase();
+        const type = String(value.type || (adapter === 'keyboard' ? 'keydown' : '')).trim();
+        if (!type) return null;
+
+        const trigger = { type };
+
+        if (adapter === 'keyboard' || type === 'keydown' || type === 'keyup') {
+            trigger.code = value.code || null;
+            trigger.key = value.key || null;
+            trigger.modifiers = profileNormalizeModifiers(value.modifiers);
+            return (!trigger.code && !trigger.key) ? null : trigger;
+        }
+
+        if (type === 'pointer-button' || type === 'mouse-button') {
+            const button = Number(value.button);
+            if (!Number.isInteger(button)) return null;
+            trigger.button = button;
+            trigger.pointerType = value.pointerType ? String(value.pointerType) : null;
+            return trigger;
+        }
+
+        if (type === 'wheel') {
+            const direction = String(value.direction || '').toLowerCase();
+            if (!['up','down','left','right'].includes(direction)) return null;
+            trigger.direction = direction;
+            return trigger;
+        }
+
+        if (type === 'gamepad-button') {
+            const button = Number(value.button);
+            if (!Number.isInteger(button)) return null;
+            trigger.button = button;
+            trigger.threshold = Number.isFinite(Number(value.threshold))
+                ? Math.min(1, Math.max(0, Number(value.threshold)))
+                : 0.5;
+            return trigger;
+        }
+
+        if (type === 'gamepad-axis') {
+            const axis = Number(value.axis);
+            const direction = String(value.direction || '').toLowerCase();
+            if (!Number.isInteger(axis) || !['positive','negative'].includes(direction)) return null;
+
+            const threshold = Number.isFinite(Number(value.threshold))
+                ? Math.min(0.98, Math.max(0.2, Number(value.threshold)))
+                : 0.65;
+            const releaseThreshold = Number.isFinite(Number(value.releaseThreshold))
+                ? Math.min(threshold, Math.max(0.05, Number(value.releaseThreshold)))
+                : Math.min(0.45, threshold);
+
+            trigger.axis = axis;
+            trigger.direction = direction;
+            trigger.threshold = threshold;
+            trigger.releaseThreshold = releaseThreshold;
+            return trigger;
+        }
+
+        Object.entries(value).forEach(([key, item]) => {
+            if (key === 'type' || item == null) return;
+            if (['string','number','boolean'].includes(typeof item)) trigger[key] = item;
+        });
+
+        return trigger;
+    }
+
+    function profileSlugify(value) {
+        return String(value || 'input')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'input';
+    }
+
     function keyboardTriggerFromInput(input) {
         const value = String(input || '').trim();
         if (!value) return null;
 
-        // Browser/consumer keys do not reliably populate KeyboardEvent.code.
-        // Keep them key-based so synthetic GuardManager relays match too.
-        const keyOnly =
-            /^(Browser|Media|AudioVolume|Launch|Zoom|PrintScreen|Pause)/.test(value);
-
-        return {
+        const keyOnly = /^(Browser|Media|AudioVolume|Launch|Zoom|PrintScreen|Pause)/.test(value);
+        return profileNormalizeTrigger({
             type: 'keydown',
             code: keyOnly ? null : value,
             key: keyOnly ? value : null,
-            modifiers: {
-                ctrl: false,
-                alt: false,
-                shift: false,
-                meta: false
-            }
+            modifiers: {}
+        }, 'keyboard');
+    }
+
+    function profileNormalizeBinding(value, index = 0) {
+        if (!value?.action || !value?.adapter || !value?.trigger) return null;
+
+        const action = String(value.action).toUpperCase();
+        const adapter = String(value.adapter).toLowerCase();
+        const meta = PROFILE_ACTION_META[action] || {};
+        const trigger = profileNormalizeTrigger(value.trigger, adapter);
+        if (!trigger) return null;
+
+        return {
+            id: value.id || `bind:${action.toLowerCase()}:${adapter}:${index}`,
+            action,
+            adapter,
+            deviceMatch: value.deviceMatch || '*',
+            trigger,
+            allowRepeat: typeof value.allowRepeat === 'boolean'
+                ? value.allowRepeat
+                : meta.allowRepeat !== false,
+            gesture: String(value.gesture || (meta.allowRepeat ? 'repeat' : 'single')).toLowerCase(),
+            longPressMs: value.longPressMs == null ? null : Number(value.longPressMs),
+            profileId: value.profileId || null
         };
     }
 
-    function profileBindingDescriptor(action, binding, profileId) {
+    function profileBindingDescriptor(action, binding, profileId, index = 0) {
         if (!binding || typeof binding !== 'object') return null;
 
-        // Future profile schemas may already carry a neutral descriptor.
+        const normalizedAction = String(binding.action || action || '').toUpperCase();
+        if (!normalizedAction) return null;
+
         if (binding.adapter && binding.trigger) {
-            return {
-                ...clone(binding),
-                action: String(binding.action || action || '').toUpperCase(),
-                profileId: profileId || null,
-                gesture: binding.gesture || 'single'
-            };
+            return profileNormalizeBinding({
+                ...binding,
+                action: normalizedAction,
+                profileId: profileId || null
+            }, index);
         }
 
-        const normalizedAction = String(binding.action || action || '').toUpperCase();
         const trigger = keyboardTriggerFromInput(binding.input);
+        if (!trigger) return null;
 
-        if (!normalizedAction || !trigger) return null;
-
-        const meta = PROFILE_ACTION_META[normalizedAction] || {};
-
-        return {
+        return profileNormalizeBinding({
             id: binding.id || `runtime:${profileId || 'default'}:${normalizedAction.toLowerCase()}`,
             action: normalizedAction,
             adapter: 'keyboard',
             deviceMatch: '*',
             trigger,
-            allowRepeat:
-                typeof binding.allowRepeat === 'boolean'
-                    ? binding.allowRepeat
-                    : meta.allowRepeat !== false,
-
-            // Gesture metadata is retained here but deliberately NOT resolved
-            // in this step. The later Gesture Resolver will own timing/phase.
-            gesture: binding.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
-            longPressMs:
-                binding.longPressMs == null
-                    ? null
-                    : Number(binding.longPressMs),
+            allowRepeat: binding.allowRepeat,
+            gesture: binding.gesture,
+            longPressMs: binding.longPressMs,
             profileId: profileId || null
-        };
+        }, index);
     }
 
     function profileGetBindings(profileId = null, adapter = null) {
         const id = String(profileId || profileGetActiveProfileId());
         const profile = profileItems()?.[id];
-
         if (!profile) return [];
 
         const source = profile.bindings || {};
-        let entries;
+        const entries = Array.isArray(source)
+            ? source.map(binding => [String(binding?.action || ''), binding])
+            : Object.entries(source);
 
-        if (Array.isArray(source)) {
-            entries = source.map(binding => [
-                String(binding?.action || ''),
-                binding
-            ]);
-        } else {
-            entries = Object.entries(source);
-        }
+        const bindings = entries
+            .map(([action, binding], index) => profileBindingDescriptor(action, binding, id, index))
+            .filter(Boolean);
 
-        return entries
-            .map(([action, binding]) =>
-                profileBindingDescriptor(action, binding, id)
-            )
-            .filter(Boolean)
-            .filter(binding =>
-                adapter ? binding.adapter === adapter : true
-            );
+        return adapter
+            ? bindings.filter(binding => binding.adapter === String(adapter).toLowerCase())
+            : bindings;
     }
 
     function profileGetBinding(action, profileId = null) {
         const normalized = String(action || '').toUpperCase();
+        return profileGetBindings(profileId).find(binding => binding.action === normalized) || null;
+    }
+
+    function profileGetDefaultBindings() {
+        const profile = makeDefaultProfile('default', 'Default');
+        return Object.entries(profile.bindings || {})
+            .map(([action, binding], index) => profileBindingDescriptor(action, binding, 'default', index))
+            .filter(Boolean);
+    }
+
+    function profileMakeKeyboardBinding(action, code, options = {}) {
+        const normalizedAction = String(action || '').toUpperCase();
+        const identity = String(code || options.key || '').trim();
+        if (!normalizedAction || !identity) return null;
+
+        const meta = PROFILE_ACTION_META[normalizedAction] || {};
+        const keyOnly = /^(Browser|Media|AudioVolume|Launch|Zoom|PrintScreen|Pause)/.test(identity);
+
+        return profileNormalizeBinding({
+            id: options.id || `bind:${normalizedAction.toLowerCase()}:keyboard:${profileSlugify(identity)}`,
+            action: normalizedAction,
+            adapter: 'keyboard',
+            deviceMatch: options.deviceMatch || '*',
+            trigger: {
+                type: 'keydown',
+                code: keyOnly ? null : identity,
+                key: options.key || (keyOnly ? identity : null),
+                modifiers: profileNormalizeModifiers(options.modifiers)
+            },
+            allowRepeat: typeof options.allowRepeat === 'boolean'
+                ? options.allowRepeat
+                : meta.allowRepeat !== false,
+            gesture: options.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
+            longPressMs: options.longPressMs ?? null
+        });
+    }
+
+    function profileMakeCapturedBinding(action, capture, options = {}) {
+        const normalizedAction = String(action || '').toUpperCase();
+        const adapter = String(capture?.adapter || '').toLowerCase();
+        const trigger = profileNormalizeTrigger(capture?.trigger, adapter);
+        if (!normalizedAction || !adapter || !trigger) return null;
+
+        const meta = PROFILE_ACTION_META[normalizedAction] || {};
+        const triggerIdentity = [
+            trigger.type, trigger.code, trigger.key, trigger.button, trigger.axis, trigger.direction
+        ].filter(value => value !== null && value !== undefined && value !== '').join('-');
+
+        return profileNormalizeBinding({
+            id: options.id || `bind:${normalizedAction.toLowerCase()}:${adapter}:${profileSlugify(triggerIdentity || 'input')}`,
+            action: normalizedAction,
+            adapter,
+            deviceMatch: options.deviceMatch || capture.deviceMatch || '*',
+            trigger,
+            allowRepeat: typeof options.allowRepeat === 'boolean'
+                ? options.allowRepeat
+                : meta.allowRepeat !== false,
+            gesture: options.gesture || profileGetBinding(normalizedAction)?.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
+            longPressMs: options.longPressMs ?? profileGetBinding(normalizedAction)?.longPressMs ?? null
+        });
+    }
+
+    function profileDeviceScopesOverlap(a, b) {
+        const left = a || '*';
+        const right = b || '*';
+        return left === '*' || right === '*' || left === right;
+    }
+
+    function profileSamePhysicalTrigger(a, b) {
+        if (!a || !b || a.adapter !== b.adapter || !profileDeviceScopesOverlap(a.deviceMatch, b.deviceMatch)) {
+            return false;
+        }
+
+        const at = a.trigger || {};
+        const bt = b.trigger || {};
+        const typeA = at.type || (a.adapter === 'keyboard' ? 'keydown' : '');
+        const typeB = bt.type || (b.adapter === 'keyboard' ? 'keydown' : '');
+        if (typeA !== typeB) return false;
+
+        if (a.adapter === 'keyboard' || typeA === 'keydown' || typeA === 'keyup') {
+            const am = profileNormalizeModifiers(at.modifiers);
+            const bm = profileNormalizeModifiers(bt.modifiers);
+            if (am.ctrl !== bm.ctrl || am.alt !== bm.alt || am.shift !== bm.shift || am.meta !== bm.meta) {
+                return false;
+            }
+            if (at.code && bt.code) return at.code === bt.code;
+            return !!(at.key && bt.key && at.key === bt.key);
+        }
+
+        if (typeA === 'pointer-button' || typeA === 'mouse-button') {
+            return Number(at.button) === Number(bt.button) &&
+                (!at.pointerType || !bt.pointerType || at.pointerType === bt.pointerType);
+        }
+        if (typeA === 'wheel') return String(at.direction) === String(bt.direction);
+        if (typeA === 'gamepad-button') return Number(at.button) === Number(bt.button);
+        if (typeA === 'gamepad-axis') {
+            return Number(at.axis) === Number(bt.axis) && String(at.direction) === String(bt.direction);
+        }
+
+        try { return JSON.stringify(at) === JSON.stringify(bt); }
+        catch (_) { return false; }
+    }
+
+    function profileGesture(binding) {
+        return String(binding?.gesture || (profileGetActionMeta(binding?.action).allowRepeat ? 'repeat' : 'single')).toLowerCase();
+    }
+
+    function profileAnalyzeConflicts(binding, profileId = null) {
+        const normalized = profileNormalizeBinding(binding, 0);
+        if (!normalized) return [];
+
         return profileGetBindings(profileId)
-            .find(binding => binding.action === normalized) || null;
+            .filter(item => item.id !== normalized.id)
+            .filter(item => profileSamePhysicalTrigger(item, normalized))
+            .filter(item => profileGesture(item) === profileGesture(normalized))
+            .map(item => ({
+                binding: clone(item),
+                sameAction: item.action === normalized.action,
+                sameGesture: true,
+                criticalAction: profileGetActionMeta(item.action).critical === true,
+                safeToKeepBoth: false
+            }));
+    }
+
+    function profileGetCriticalActionsWithoutBindings(profileId = null) {
+        const bindings = profileGetBindings(profileId);
+        return Object.entries(PROFILE_ACTION_META)
+            .filter(([, meta]) => meta.critical === true)
+            .map(([action]) => action)
+            .filter(action => !bindings.some(binding => binding.action === action));
+    }
+
+    function profileCompatibilityReport() {
+        const legacy = QoL.airKeybinds || null;
+        const requiredReads = [
+            'getActiveProfileId', 'getProfile', 'getActiveProfile', 'getBindings',
+            'getDefaultBindings', 'getActionMeta', 'isGlobalAction',
+            'isTextHandoffAction', 'normalizeTrigger', 'makeKeyboardBinding',
+            'makeCapturedBinding', 'analyzeConflicts', 'getCriticalActionsWithoutBindings'
+        ];
+
+        const missing = requiredReads.filter(name => typeof QoL.profileRuntime?.[name] !== 'function');
+        let legacyBindings = [];
+        try { legacyBindings = legacy?.getBindings?.() || []; } catch (_) {}
+
+        return {
+            version: '1.1.0-read',
+            ready: missing.length === 0,
+            readOnly: true,
+            missingMethods: missing,
+            legacyPresent: !!legacy,
+            legacyVersion: legacy?.VERSION || legacy?.version || null,
+            activeProfileId: profileGetActiveProfileId(),
+            productionBindingCount: profileGetBindings().length,
+            legacyBindingCount: Array.isArray(legacyBindings) ? legacyBindings.length : null,
+            conflictRule: 'same-physical-trigger+same-gesture',
+            gestureResolutionActive: false
+        };
     }
 
     function profileGetState() {
@@ -710,7 +925,7 @@
         const profiles = profileItems();
 
         return {
-            version: '1.0.0',
+            version: '1.1.0-read',
             source: config?.source || null,
             authenticated: config?.authenticated === true,
             activeProfileId,
@@ -719,12 +934,14 @@
             bindings: profileGetBindings(activeProfileId),
             bindingCount: profileGetBindings(activeProfileId).length,
             readOnly: true,
+            compatibilityReady: true,
+            conflictRule: 'same-physical-trigger+same-gesture',
             gestureResolutionActive: false
         };
     }
 
     QoL.profileRuntime = Object.freeze({
-        version: '1.0.0',
+        version: '1.1.0-read',
         ACTION_META: PROFILE_ACTION_META,
         getState: profileGetState,
         getActiveProfileId: profileGetActiveProfileId,
@@ -732,10 +949,18 @@
         getActiveProfile: profileGetActiveProfile,
         getBindings: profileGetBindings,
         getBinding: profileGetBinding,
+        getDefaultBindings: profileGetDefaultBindings,
         getActionMeta: profileGetActionMeta,
         isGlobalAction: profileIsGlobalAction,
-        isTextHandoffAction: profileIsTextHandoffAction
+        isTextHandoffAction: profileIsTextHandoffAction,
+        normalizeTrigger: profileNormalizeTrigger,
+        makeKeyboardBinding: profileMakeKeyboardBinding,
+        makeCapturedBinding: profileMakeCapturedBinding,
+        analyzeConflicts: profileAnalyzeConflicts,
+        getCriticalActionsWithoutBindings: profileGetCriticalActionsWithoutBindings,
+        compatibilityReport: profileCompatibilityReport
     });
+
     QoL.runtimeSettings = Object.freeze({
         version: VERSION,
         start,
