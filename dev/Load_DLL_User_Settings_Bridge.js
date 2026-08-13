@@ -16,9 +16,12 @@
             return;
         }
 
+        const cacheToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const script = document.createElement('script');
         script.dataset.owner = MARKER;
-        script.src = ApiClient.getUrl('web/ConfigurationPage?name=JellyfinQoLUserSettingsBridge.js') + '&qolv=2.2.0';
+        script.src = ApiClient.getUrl('web/ConfigurationPage?name=JellyfinQoLUserSettingsBridge.js') +
+            `&qoldev=${encodeURIComponent(cacheToken)}`;
+        script.async = true;
         script.onload = () => console.log('[JellyfinQoL] DLL user-settings bridge loaded.');
         script.onerror = error => console.error('[JellyfinQoL] Could not load DLL user-settings bridge.', error);
         document.head.appendChild(script);
