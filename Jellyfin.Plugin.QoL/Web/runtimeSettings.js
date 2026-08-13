@@ -529,7 +529,8 @@
     }
 
     // ---------------------------------------------------------------------
-    // Production profile projection - Part 1: read-only compatibility.
+    // Production profile runtime - Part 2: mutations + persistence.
+    // Old QoL.airKeybinds remains authoritative until Part 3 takeover.
     // ---------------------------------------------------------------------
 
     const PROFILE_ACTION_META = Object.freeze({
@@ -549,6 +550,11 @@
         EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true })
     });
 
+    const profileMutationListeners = new Map();
+    let profilePersistChain = Promise.resolve();
+    let profileLastPersistAt = null;
+    let profileLastPersistError = null;
+
     function profileConfig() {
         return runtimeConfig || QoL.runtimeConfig || null;
     }
@@ -559,10 +565,7 @@
 
     function profileGetActiveProfileId() {
         const config = profileConfig();
-        return config?.activeProfileId ||
-            config?.profiles?.activeProfileId ||
-            clientState?.activeProfileId ||
-            'default';
+        return config?.activeProfileId || config?.profiles?.activeProfileId || clientState?.activeProfileId || 'default';
     }
 
     function profileGetProfile(profileId = null) {
@@ -572,6 +575,12 @@
 
     function profileGetActiveProfile() {
         return profileGetProfile(profileGetActiveProfileId());
+    }
+
+    function profileGetStoredProfile(profileId = null) {
+        normalizeProfiles(userState, clientState);
+        const id = String(profileId || profileGetActiveProfileId());
+        return userState.profiles?.items?.[id] || null;
     }
 
     function profileGetActionMeta(action) {
@@ -587,21 +596,14 @@
     }
 
     function profileNormalizeModifiers(value) {
-        return {
-            ctrl: !!value?.ctrl,
-            alt: !!value?.alt,
-            shift: !!value?.shift,
-            meta: !!value?.meta
-        };
+        return { ctrl:!!value?.ctrl, alt:!!value?.alt, shift:!!value?.shift, meta:!!value?.meta };
     }
 
     function profileNormalizeTrigger(value, adapter = '') {
         if (!value || typeof value !== 'object') return null;
-
         adapter = String(adapter || '').toLowerCase();
         const type = String(value.type || (adapter === 'keyboard' ? 'keydown' : '')).trim();
         if (!type) return null;
-
         const trigger = { type };
 
         if (adapter === 'keyboard' || type === 'keydown' || type === 'keyup') {
@@ -610,7 +612,6 @@
             trigger.modifiers = profileNormalizeModifiers(value.modifiers);
             return (!trigger.code && !trigger.key) ? null : trigger;
         }
-
         if (type === 'pointer-button' || type === 'mouse-button') {
             const button = Number(value.button);
             if (!Number.isInteger(button)) return null;
@@ -618,36 +619,25 @@
             trigger.pointerType = value.pointerType ? String(value.pointerType) : null;
             return trigger;
         }
-
         if (type === 'wheel') {
             const direction = String(value.direction || '').toLowerCase();
             if (!['up','down','left','right'].includes(direction)) return null;
             trigger.direction = direction;
             return trigger;
         }
-
         if (type === 'gamepad-button') {
             const button = Number(value.button);
             if (!Number.isInteger(button)) return null;
             trigger.button = button;
-            trigger.threshold = Number.isFinite(Number(value.threshold))
-                ? Math.min(1, Math.max(0, Number(value.threshold)))
-                : 0.5;
+            trigger.threshold = Number.isFinite(Number(value.threshold)) ? Math.min(1, Math.max(0, Number(value.threshold))) : 0.5;
             return trigger;
         }
-
         if (type === 'gamepad-axis') {
             const axis = Number(value.axis);
             const direction = String(value.direction || '').toLowerCase();
             if (!Number.isInteger(axis) || !['positive','negative'].includes(direction)) return null;
-
-            const threshold = Number.isFinite(Number(value.threshold))
-                ? Math.min(0.98, Math.max(0.2, Number(value.threshold)))
-                : 0.65;
-            const releaseThreshold = Number.isFinite(Number(value.releaseThreshold))
-                ? Math.min(threshold, Math.max(0.05, Number(value.releaseThreshold)))
-                : Math.min(0.45, threshold);
-
+            const threshold = Number.isFinite(Number(value.threshold)) ? Math.min(0.98, Math.max(0.2, Number(value.threshold))) : 0.65;
+            const releaseThreshold = Number.isFinite(Number(value.releaseThreshold)) ? Math.min(threshold, Math.max(0.05, Number(value.releaseThreshold))) : Math.min(0.45, threshold);
             trigger.axis = axis;
             trigger.direction = direction;
             trigger.threshold = threshold;
@@ -659,82 +649,59 @@
             if (key === 'type' || item == null) return;
             if (['string','number','boolean'].includes(typeof item)) trigger[key] = item;
         });
-
         return trigger;
     }
 
     function profileSlugify(value) {
-        return String(value || 'input')
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '') || 'input';
+        return String(value || 'input').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'input';
     }
 
     function keyboardTriggerFromInput(input) {
         const value = String(input || '').trim();
         if (!value) return null;
-
         const keyOnly = /^(Browser|Media|AudioVolume|Launch|Zoom|PrintScreen|Pause)/.test(value);
-        return profileNormalizeTrigger({
-            type: 'keydown',
-            code: keyOnly ? null : value,
-            key: keyOnly ? value : null,
-            modifiers: {}
-        }, 'keyboard');
+        return profileNormalizeTrigger({ type:'keydown', code:keyOnly ? null : value, key:keyOnly ? value : null, modifiers:{} }, 'keyboard');
     }
 
     function profileNormalizeBinding(value, index = 0) {
         if (!value?.action || !value?.adapter || !value?.trigger) return null;
-
         const action = String(value.action).toUpperCase();
         const adapter = String(value.adapter).toLowerCase();
         const meta = PROFILE_ACTION_META[action] || {};
         const trigger = profileNormalizeTrigger(value.trigger, adapter);
         if (!trigger) return null;
-
         return {
-            id: value.id || `bind:${action.toLowerCase()}:${adapter}:${index}`,
+            id:value.id || `bind:${action.toLowerCase()}:${adapter}:${index}`,
             action,
             adapter,
-            deviceMatch: value.deviceMatch || '*',
+            deviceMatch:value.deviceMatch || '*',
             trigger,
-            allowRepeat: typeof value.allowRepeat === 'boolean'
-                ? value.allowRepeat
-                : meta.allowRepeat !== false,
-            gesture: String(value.gesture || (meta.allowRepeat ? 'repeat' : 'single')).toLowerCase(),
-            longPressMs: value.longPressMs == null ? null : Number(value.longPressMs),
-            profileId: value.profileId || null
+            allowRepeat:typeof value.allowRepeat === 'boolean' ? value.allowRepeat : meta.allowRepeat !== false,
+            gesture:String(value.gesture || (meta.allowRepeat ? 'repeat' : 'single')).toLowerCase(),
+            longPressMs:value.longPressMs == null ? null : Number(value.longPressMs),
+            profileId:value.profileId || null
         };
     }
 
     function profileBindingDescriptor(action, binding, profileId, index = 0) {
         if (!binding || typeof binding !== 'object') return null;
-
         const normalizedAction = String(binding.action || action || '').toUpperCase();
         if (!normalizedAction) return null;
-
         if (binding.adapter && binding.trigger) {
-            return profileNormalizeBinding({
-                ...binding,
-                action: normalizedAction,
-                profileId: profileId || null
-            }, index);
+            return profileNormalizeBinding({ ...binding, action:normalizedAction, profileId:profileId || null }, index);
         }
-
         const trigger = keyboardTriggerFromInput(binding.input);
         if (!trigger) return null;
-
         return profileNormalizeBinding({
-            id: binding.id || `runtime:${profileId || 'default'}:${normalizedAction.toLowerCase()}`,
-            action: normalizedAction,
-            adapter: 'keyboard',
-            deviceMatch: '*',
+            id:binding.id || `runtime:${profileId || 'default'}:${normalizedAction.toLowerCase()}`,
+            action:normalizedAction,
+            adapter:'keyboard',
+            deviceMatch:'*',
             trigger,
-            allowRepeat: binding.allowRepeat,
-            gesture: binding.gesture,
-            longPressMs: binding.longPressMs,
-            profileId: profileId || null
+            allowRepeat:binding.allowRepeat,
+            gesture:binding.gesture,
+            longPressMs:binding.longPressMs,
+            profileId:profileId || null
         }, index);
     }
 
@@ -742,19 +709,10 @@
         const id = String(profileId || profileGetActiveProfileId());
         const profile = profileItems()?.[id];
         if (!profile) return [];
-
         const source = profile.bindings || {};
-        const entries = Array.isArray(source)
-            ? source.map(binding => [String(binding?.action || ''), binding])
-            : Object.entries(source);
-
-        const bindings = entries
-            .map(([action, binding], index) => profileBindingDescriptor(action, binding, id, index))
-            .filter(Boolean);
-
-        return adapter
-            ? bindings.filter(binding => binding.adapter === String(adapter).toLowerCase())
-            : bindings;
+        const entries = Array.isArray(source) ? source.map(binding => [String(binding?.action || ''), binding]) : Object.entries(source);
+        const bindings = entries.map(([action, binding], index) => profileBindingDescriptor(action, binding, id, index)).filter(Boolean);
+        return adapter ? bindings.filter(binding => binding.adapter === String(adapter).toLowerCase()) : bindings;
     }
 
     function profileGetBinding(action, profileId = null) {
@@ -764,35 +722,24 @@
 
     function profileGetDefaultBindings() {
         const profile = makeDefaultProfile('default', 'Default');
-        return Object.entries(profile.bindings || {})
-            .map(([action, binding], index) => profileBindingDescriptor(action, binding, 'default', index))
-            .filter(Boolean);
+        return Object.entries(profile.bindings || {}).map(([action, binding], index) => profileBindingDescriptor(action, binding, 'default', index)).filter(Boolean);
     }
 
     function profileMakeKeyboardBinding(action, code, options = {}) {
         const normalizedAction = String(action || '').toUpperCase();
         const identity = String(code || options.key || '').trim();
         if (!normalizedAction || !identity) return null;
-
         const meta = PROFILE_ACTION_META[normalizedAction] || {};
         const keyOnly = /^(Browser|Media|AudioVolume|Launch|Zoom|PrintScreen|Pause)/.test(identity);
-
         return profileNormalizeBinding({
-            id: options.id || `bind:${normalizedAction.toLowerCase()}:keyboard:${profileSlugify(identity)}`,
-            action: normalizedAction,
-            adapter: 'keyboard',
-            deviceMatch: options.deviceMatch || '*',
-            trigger: {
-                type: 'keydown',
-                code: keyOnly ? null : identity,
-                key: options.key || (keyOnly ? identity : null),
-                modifiers: profileNormalizeModifiers(options.modifiers)
-            },
-            allowRepeat: typeof options.allowRepeat === 'boolean'
-                ? options.allowRepeat
-                : meta.allowRepeat !== false,
-            gesture: options.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
-            longPressMs: options.longPressMs ?? null
+            id:options.id || `bind:${normalizedAction.toLowerCase()}:keyboard:${profileSlugify(identity)}`,
+            action:normalizedAction,
+            adapter:'keyboard',
+            deviceMatch:options.deviceMatch || '*',
+            trigger:{ type:'keydown', code:keyOnly ? null : identity, key:options.key || (keyOnly ? identity : null), modifiers:profileNormalizeModifiers(options.modifiers) },
+            allowRepeat:typeof options.allowRepeat === 'boolean' ? options.allowRepeat : meta.allowRepeat !== false,
+            gesture:options.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
+            longPressMs:options.longPressMs ?? null
         });
     }
 
@@ -801,23 +748,17 @@
         const adapter = String(capture?.adapter || '').toLowerCase();
         const trigger = profileNormalizeTrigger(capture?.trigger, adapter);
         if (!normalizedAction || !adapter || !trigger) return null;
-
         const meta = PROFILE_ACTION_META[normalizedAction] || {};
-        const triggerIdentity = [
-            trigger.type, trigger.code, trigger.key, trigger.button, trigger.axis, trigger.direction
-        ].filter(value => value !== null && value !== undefined && value !== '').join('-');
-
+        const triggerIdentity = [trigger.type, trigger.code, trigger.key, trigger.button, trigger.axis, trigger.direction].filter(value => value !== null && value !== undefined && value !== '').join('-');
         return profileNormalizeBinding({
-            id: options.id || `bind:${normalizedAction.toLowerCase()}:${adapter}:${profileSlugify(triggerIdentity || 'input')}`,
-            action: normalizedAction,
+            id:options.id || `bind:${normalizedAction.toLowerCase()}:${adapter}:${profileSlugify(triggerIdentity || 'input')}`,
+            action:normalizedAction,
             adapter,
-            deviceMatch: options.deviceMatch || capture.deviceMatch || '*',
+            deviceMatch:options.deviceMatch || capture.deviceMatch || '*',
             trigger,
-            allowRepeat: typeof options.allowRepeat === 'boolean'
-                ? options.allowRepeat
-                : meta.allowRepeat !== false,
-            gesture: options.gesture || profileGetBinding(normalizedAction)?.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
-            longPressMs: options.longPressMs ?? profileGetBinding(normalizedAction)?.longPressMs ?? null
+            allowRepeat:typeof options.allowRepeat === 'boolean' ? options.allowRepeat : meta.allowRepeat !== false,
+            gesture:options.gesture || profileGetBinding(normalizedAction)?.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
+            longPressMs:options.longPressMs ?? profileGetBinding(normalizedAction)?.longPressMs ?? null
         });
     }
 
@@ -828,38 +769,24 @@
     }
 
     function profileSamePhysicalTrigger(a, b) {
-        if (!a || !b || a.adapter !== b.adapter || !profileDeviceScopesOverlap(a.deviceMatch, b.deviceMatch)) {
-            return false;
-        }
-
+        if (!a || !b || a.adapter !== b.adapter || !profileDeviceScopesOverlap(a.deviceMatch, b.deviceMatch)) return false;
         const at = a.trigger || {};
         const bt = b.trigger || {};
         const typeA = at.type || (a.adapter === 'keyboard' ? 'keydown' : '');
         const typeB = bt.type || (b.adapter === 'keyboard' ? 'keydown' : '');
         if (typeA !== typeB) return false;
-
         if (a.adapter === 'keyboard' || typeA === 'keydown' || typeA === 'keyup') {
             const am = profileNormalizeModifiers(at.modifiers);
             const bm = profileNormalizeModifiers(bt.modifiers);
-            if (am.ctrl !== bm.ctrl || am.alt !== bm.alt || am.shift !== bm.shift || am.meta !== bm.meta) {
-                return false;
-            }
+            if (am.ctrl !== bm.ctrl || am.alt !== bm.alt || am.shift !== bm.shift || am.meta !== bm.meta) return false;
             if (at.code && bt.code) return at.code === bt.code;
             return !!(at.key && bt.key && at.key === bt.key);
         }
-
-        if (typeA === 'pointer-button' || typeA === 'mouse-button') {
-            return Number(at.button) === Number(bt.button) &&
-                (!at.pointerType || !bt.pointerType || at.pointerType === bt.pointerType);
-        }
+        if (typeA === 'pointer-button' || typeA === 'mouse-button') return Number(at.button) === Number(bt.button) && (!at.pointerType || !bt.pointerType || at.pointerType === bt.pointerType);
         if (typeA === 'wheel') return String(at.direction) === String(bt.direction);
         if (typeA === 'gamepad-button') return Number(at.button) === Number(bt.button);
-        if (typeA === 'gamepad-axis') {
-            return Number(at.axis) === Number(bt.axis) && String(at.direction) === String(bt.direction);
-        }
-
-        try { return JSON.stringify(at) === JSON.stringify(bt); }
-        catch (_) { return false; }
+        if (typeA === 'gamepad-axis') return Number(at.axis) === Number(bt.axis) && String(at.direction) === String(bt.direction);
+        try { return JSON.stringify(at) === JSON.stringify(bt); } catch (_) { return false; }
     }
 
     function profileGesture(binding) {
@@ -869,53 +796,345 @@
     function profileAnalyzeConflicts(binding, profileId = null) {
         const normalized = profileNormalizeBinding(binding, 0);
         if (!normalized) return [];
-
         return profileGetBindings(profileId)
             .filter(item => item.id !== normalized.id)
             .filter(item => profileSamePhysicalTrigger(item, normalized))
             .filter(item => profileGesture(item) === profileGesture(normalized))
-            .map(item => ({
-                binding: clone(item),
-                sameAction: item.action === normalized.action,
-                sameGesture: true,
-                criticalAction: profileGetActionMeta(item.action).critical === true,
-                safeToKeepBoth: false
-            }));
+            .map(item => ({ binding:clone(item), sameAction:item.action === normalized.action, sameGesture:true, criticalAction:profileGetActionMeta(item.action).critical === true, safeToKeepBoth:false }));
     }
 
-    function profileGetCriticalActionsWithoutBindings(profileId = null) {
-        const bindings = profileGetBindings(profileId);
-        return Object.entries(PROFILE_ACTION_META)
-            .filter(([, meta]) => meta.critical === true)
-            .map(([action]) => action)
-            .filter(action => !bindings.some(binding => binding.action === action));
+    function profileGetCriticalActionsWithoutBindings(profileId = null, bindingsOverride = null) {
+        const bindings = Array.isArray(bindingsOverride) ? bindingsOverride : profileGetBindings(profileId);
+        return Object.entries(PROFILE_ACTION_META).filter(([, meta]) => meta.critical === true).map(([action]) => action).filter(action => !bindings.some(binding => binding.action === action));
+    }
+
+    function profileOn(event, callback) {
+        if (typeof callback !== 'function') return () => {};
+        if (!profileMutationListeners.has(event)) profileMutationListeners.set(event, new Set());
+        profileMutationListeners.get(event).add(callback);
+        return () => profileOff(event, callback);
+    }
+
+    function profileOff(event, callback) {
+        const set = profileMutationListeners.get(event);
+        if (!set) return;
+        set.delete(callback);
+        if (!set.size) profileMutationListeners.delete(event);
+    }
+
+    function profileEmit(event, payload) {
+        const set = profileMutationListeners.get(event);
+        if (set) [...set].forEach(callback => {
+            try { callback(clone(payload)); }
+            catch (error) { console.error('[JellyfinQoL.ProfileRuntime]', `Listener failed for ${event}.`, error); }
+        });
+        try { window.dispatchEvent(new CustomEvent(`jellyfin-qol-profile-${event}`, { detail:clone(payload) })); } catch (_) {}
+    }
+
+    function profileSaveClientState() {
+        try {
+            clientState.schemaVersion = CLIENT_SCHEMA_VERSION;
+            localStorage.setItem(CLIENT_STORAGE_KEY, JSON.stringify(clientState));
+            lastClientFingerprint = getClientFingerprint();
+            return true;
+        } catch (error) {
+            console.error('[JellyfinQoL.ProfileRuntime] Could not save client-local profile activation.', error);
+            return false;
+        }
+    }
+
+    function profileQueueServerPersist(reason = 'profile-edit') {
+        const token = getAccessToken();
+        if (!token) return Promise.resolve({ saved:false, reason:'anonymous-session' });
+        const snapshot = clone(userState);
+        profilePersistChain = profilePersistChain.catch(() => null).then(async () => {
+            try {
+                await apiRequest('JellyfinQoL/UserSettings', { method:'PUT', body:JSON.stringify({ schemaVersion:USER_SCHEMA_VERSION, data:snapshot }) });
+                profileLastPersistAt = Date.now();
+                profileLastPersistError = null;
+                lastServerRefreshAt = profileLastPersistAt;
+                const result = { saved:true, reason, savedAt:profileLastPersistAt };
+                profileEmit('persisted', result);
+                return result;
+            } catch (error) {
+                profileLastPersistError = error;
+                const result = { saved:false, reason:'server-save-failed', operation:reason, error:String(error?.message || error) };
+                console.error('[JellyfinQoL.ProfileRuntime] Server profile persistence failed.', error);
+                profileEmit('error', result);
+                return result;
+            }
+        });
+        return profilePersistChain;
+    }
+
+    function profileFlushPersistence() {
+        return profilePersistChain;
+    }
+
+    function profilePublishMutation(reason) {
+        const config = publish('runtime-profile-edit+client-local', !!getAccessToken(), `profile-runtime:${reason}`);
+        const payload = { reason, activeProfileId:profileGetActiveProfileId(), config };
+        profileEmit('changed', payload);
+        return payload;
+    }
+
+    function profileActionLabel(action) {
+        return ACTIONS.find(item => item.action === action)?.label || action;
+    }
+
+    function profileDescribeTrigger(binding) {
+        const trigger = binding?.trigger || {};
+        const type = String(trigger.type || '');
+        if (binding?.adapter === 'keyboard' || type === 'keydown' || type === 'keyup') return trigger.code || trigger.key || '';
+        if (type === 'pointer-button' || type === 'mouse-button') return `Pointer button ${trigger.button}`;
+        if (type === 'wheel') return `Wheel ${trigger.direction || ''}`.trim();
+        if (type === 'gamepad-button') return `Gamepad button ${trigger.button}`;
+        if (type === 'gamepad-axis') return `Gamepad axis ${trigger.axis} ${trigger.direction || ''}`.trim();
+        return [binding?.adapter || 'input', type || 'trigger'].join(':');
+    }
+
+    function profileStoredBindingFromDescriptor(descriptor, existing = null) {
+        const normalized = profileNormalizeBinding(descriptor, 0);
+        if (!normalized) return null;
+        const meta = PROFILE_ACTION_META[normalized.action] || {};
+        const gesture = normalized.gesture || existing?.gesture || (meta.allowRepeat ? 'repeat' : 'single');
+        return {
+            ...(isObject(existing) ? clone(existing) : {}),
+            id:normalized.id,
+            action:normalized.action,
+            label:existing?.label || profileActionLabel(normalized.action),
+            input:profileDescribeTrigger(normalized),
+            adapter:normalized.adapter,
+            deviceMatch:normalized.deviceMatch || '*',
+            trigger:clone(normalized.trigger),
+            gesture,
+            longPressMs:gesture === 'long' ? (normalized.longPressMs || existing?.longPressMs || userState?.gestures?.longPressMs || 3000) : null,
+            allowRepeat:typeof normalized.allowRepeat === 'boolean' ? normalized.allowRepeat : meta.allowRepeat !== false
+        };
+    }
+
+    function profileEmptyStoredBinding(action, existing = null) {
+        const normalizedAction = String(action || '').toUpperCase();
+        const meta = PROFILE_ACTION_META[normalizedAction] || {};
+        const gesture = existing?.gesture || (meta.allowRepeat ? 'repeat' : 'single');
+        return {
+            ...(isObject(existing) ? clone(existing) : {}),
+            id:existing?.id || `runtime:${profileGetActiveProfileId()}:${normalizedAction.toLowerCase()}`,
+            action:normalizedAction,
+            label:existing?.label || profileActionLabel(normalizedAction),
+            input:'',
+            adapter:null,
+            deviceMatch:'*',
+            trigger:null,
+            gesture,
+            longPressMs:gesture === 'long' ? (existing?.longPressMs || userState?.gestures?.longPressMs || 3000) : null,
+            allowRepeat:typeof existing?.allowRepeat === 'boolean' ? existing.allowRepeat : meta.allowRepeat !== false
+        };
+    }
+
+    function profilePersist(reason = 'manual-profile-persist') {
+        profileQueueServerPersist(reason);
+        return true;
+    }
+
+    function profileSetActiveProfile(profileId) {
+        const id = String(profileId || '');
+        if (!profileGetStoredProfile(id)) return { changed:false, reason:'profile-not-found', profileId:id };
+        const previous = profileGetActiveProfileId();
+        if (previous === id) return { changed:false, reason:'profile-already-active', profileId:id };
+        clientState.activeProfileId = id;
+        if (!profileSaveClientState()) {
+            clientState.activeProfileId = previous;
+            return { changed:false, reason:'client-save-failed', profileId:id };
+        }
+        profilePublishMutation('profile-changed');
+        const result = { changed:true, previous, profileId:id };
+        profileEmit('profileChanged', { ...result, profile:profileGetProfile(id) });
+        return result;
+    }
+
+    function profileCreateProfile(name, options = {}) {
+        normalizeProfiles(userState, clientState);
+        const items = userState.profiles.items;
+        const base = options.baseProfileId ? items[options.baseProfileId] : items[profileGetActiveProfileId()];
+        const idBase = profileSlugify(options.id || name || 'profile');
+        let id = idBase;
+        let suffix = 2;
+        while (items[id]) id = `${idBase}-${suffix++}`;
+        const profile = base ? clone(base) : makeDefaultProfile(id, name || id);
+        profile.id = id;
+        profile.name = String(name || id);
+        items[id] = profile;
+        profilePublishMutation('profile-created');
+        profileQueueServerPersist('profile-created');
+        profileEmit('profileCreated', { profile:profileGetProfile(id) });
+        return profileGetProfile(id);
+    }
+
+    function profileDeleteProfile(profileId) {
+        normalizeProfiles(userState, clientState);
+        const id = String(profileId || '');
+        const items = userState.profiles.items;
+        if (!items[id]) return { changed:false, reason:'profile-not-found', profileId:id };
+        if (Object.keys(items).length <= 1) return { changed:false, reason:'cannot-delete-last-profile', profileId:id };
+        delete items[id];
+        const fallbackId = Object.keys(items)[0];
+        if (userState.profiles.activeProfileId === id) userState.profiles.activeProfileId = fallbackId;
+        if (clientState.activeProfileId === id) {
+            clientState.activeProfileId = fallbackId;
+            if (!profileSaveClientState()) console.warn('[JellyfinQoL.ProfileRuntime] Deleted active profile but could not persist fallback activation.');
+        }
+        profilePublishMutation('profile-deleted');
+        profileQueueServerPersist('profile-deleted');
+        const result = { changed:true, profileId:id, activeProfileId:profileGetActiveProfileId() };
+        profileEmit('profileDeleted', result);
+        return result;
+    }
+
+    function profileResetProfile(profileId = null) {
+        normalizeProfiles(userState, clientState);
+        const id = String(profileId || profileGetActiveProfileId());
+        const items = userState.profiles.items;
+        if (!items[id]) return { changed:false, reason:'profile-not-found', profileId:id };
+        const name = items[id]?.name || id;
+        items[id] = makeDefaultProfile(id, name);
+        profilePublishMutation('profile-reset');
+        profileQueueServerPersist('profile-reset');
+        const result = { changed:true, profileId:id };
+        profileEmit('profileReset', { ...result, profile:profileGetProfile(id) });
+        return result;
+    }
+
+    function profileReplaceBindingsForAction(action, bindings, profileId = null, options = {}) {
+        const normalizedAction = String(action || '').toUpperCase();
+        const id = String(profileId || profileGetActiveProfileId());
+        const profile = profileGetStoredProfile(id);
+        if (!profile) return { changed:false, reason:'profile-not-found', profileId:id };
+        const incoming = Array.isArray(bindings) ? bindings : [];
+        if (incoming.length > 1) return { changed:false, reason:'multiple-bindings-not-supported-by-production-profile-schema', profileId:id, action:normalizedAction };
+        if (PROFILE_ACTION_META[normalizedAction]?.critical === true && incoming.length === 0 && options.allowCriticalUnbound !== true) {
+            return { changed:false, reason:'would-unbind-critical-action', profileId:id, action:normalizedAction };
+        }
+        profile.bindings = isObject(profile.bindings) ? profile.bindings : {};
+        if (!incoming.length) {
+            profile.bindings[normalizedAction] = profileEmptyStoredBinding(normalizedAction, profile.bindings[normalizedAction]);
+        } else {
+            const normalized = profileNormalizeBinding({ ...incoming[0], action:normalizedAction, profileId:id }, 0);
+            if (!normalized) return { changed:false, reason:'invalid-binding', profileId:id, action:normalizedAction };
+            profile.bindings[normalizedAction] = profileStoredBindingFromDescriptor(normalized, profile.bindings[normalizedAction]);
+        }
+        profilePublishMutation('bindings-replaced');
+        profileQueueServerPersist('bindings-replaced');
+        const result = { changed:true, profileId:id, action:normalizedAction, bindings:profileGetBindings(id).filter(item => item.action === normalizedAction) };
+        profileEmit('bindingsChanged', result);
+        return result;
+    }
+
+    function profileClearBindingsForAction(action, profileId = null, options = {}) {
+        return profileReplaceBindingsForAction(action, [], profileId, options);
+    }
+
+    function profileCommitBinding(binding, options = {}) {
+        const profileId = String(options.profileId || profileGetActiveProfileId());
+        const profile = profileGetStoredProfile(profileId);
+        if (!profile) return { changed:false, reason:'profile-not-found', profileId };
+        const normalized = profileNormalizeBinding({ ...binding, profileId }, 0);
+        if (!normalized) return { changed:false, reason:'invalid-binding', profileId };
+        const mode = options.mode || 'replace-action';
+        if (!['replace-action','add'].includes(mode)) return { changed:false, reason:'unsupported-commit-mode', mode, profileId };
+        if (mode === 'add' && profileGetBinding(normalized.action, profileId)) {
+            return { changed:false, reason:'multiple-bindings-not-supported-by-production-profile-schema', profileId, action:normalized.action };
+        }
+        const conflictResolution = options.conflictResolution || 'cancel';
+        const conflicts = profileAnalyzeConflicts(normalized, profileId);
+        if (conflicts.length && conflictResolution === 'cancel') {
+            return { changed:false, reason:'conflict-resolution-required', profileId, binding:clone(normalized), conflicts };
+        }
+        if (conflicts.length && conflictResolution === 'keep-both' && conflicts.some(item => !item.sameAction)) {
+            return { changed:false, reason:'keep-both-unsafe', profileId, binding:clone(normalized), conflicts };
+        }
+        let simulated = profileGetBindings(profileId).filter(item => item.action !== normalized.action);
+        if (conflictResolution === 'replace') {
+            const conflictingIds = new Set(conflicts.map(item => item.binding?.id).filter(Boolean));
+            simulated = simulated.filter(item => !conflictingIds.has(item.id));
+        }
+        simulated.push(normalized);
+        const criticalMissing = profileGetCriticalActionsWithoutBindings(profileId, simulated);
+        if (criticalMissing.length && options.allowCriticalUnbound !== true) {
+            return { changed:false, reason:'would-unbind-critical-actions', profileId, binding:clone(normalized), conflicts, actions:criticalMissing };
+        }
+        profile.bindings = isObject(profile.bindings) ? profile.bindings : {};
+        if (conflictResolution === 'replace') {
+            conflicts.forEach(item => {
+                const conflictAction = item.binding?.action;
+                if (!conflictAction || conflictAction === normalized.action) return;
+                profile.bindings[conflictAction] = profileEmptyStoredBinding(conflictAction, profile.bindings[conflictAction]);
+            });
+        }
+        profile.bindings[normalized.action] = profileStoredBindingFromDescriptor(normalized, profile.bindings[normalized.action]);
+        profilePublishMutation('binding-committed');
+        profileQueueServerPersist('binding-committed');
+        const result = { changed:true, reason:'binding-committed', profileId, mode, conflictResolution, binding:profileGetBinding(normalized.action, profileId), conflicts };
+        profileEmit('bindingCommitted', result);
+        return result;
+    }
+
+    function profileRemoveBinding(bindingId, options = {}) {
+        const profileId = String(options.profileId || profileGetActiveProfileId());
+        const target = profileGetBindings(profileId).find(item => item.id === bindingId);
+        if (!target) return { changed:false, reason:'binding-not-found', profileId, bindingId };
+        if (PROFILE_ACTION_META[target.action]?.critical === true && options.allowCriticalUnbound !== true) {
+            return { changed:false, reason:'would-unbind-critical-action', profileId, bindingId, action:target.action };
+        }
+        const cleared = profileClearBindingsForAction(target.action, profileId, { allowCriticalUnbound:true });
+        if (!cleared.changed) return cleared;
+        const result = { changed:true, reason:'binding-removed', profileId, binding:clone(target) };
+        profileEmit('bindingRemoved', result);
+        return result;
+    }
+
+    function profileSetProfileBehavior(patch, profileId = null) {
+        const id = String(profileId || profileGetActiveProfileId());
+        const profile = profileGetStoredProfile(id);
+        if (!profile) return { changed:false, reason:'profile-not-found', profileId:id };
+        profile.behavior = { ...(isObject(profile.behavior) ? profile.behavior : {}), ...(isObject(patch) ? clone(patch) : {}) };
+        profilePublishMutation('profile-behavior');
+        profileQueueServerPersist('profile-behavior');
+        const result = { changed:true, profileId:id, behavior:clone(profile.behavior) };
+        profileEmit('behaviorChanged', result);
+        return result;
     }
 
     function profileCompatibilityReport() {
         const legacy = QoL.airKeybinds || null;
-        const requiredReads = [
-            'getActiveProfileId', 'getProfile', 'getActiveProfile', 'getBindings',
-            'getDefaultBindings', 'getActionMeta', 'isGlobalAction',
-            'isTextHandoffAction', 'normalizeTrigger', 'makeKeyboardBinding',
-            'makeCapturedBinding', 'analyzeConflicts', 'getCriticalActionsWithoutBindings'
+        const required = [
+            'getActiveProfileId','getProfile','getActiveProfile','getBindings','getDefaultBindings','getActionMeta',
+            'isGlobalAction','isTextHandoffAction','normalizeTrigger','makeKeyboardBinding','makeCapturedBinding',
+            'analyzeConflicts','getCriticalActionsWithoutBindings','persist','setActiveProfile','createProfile','deleteProfile',
+            'resetProfile','replaceBindingsForAction','clearBindingsForAction','commitBinding','removeBinding','setProfileBehavior',
+            'flushPersistence','on','off'
         ];
-
-        const missing = requiredReads.filter(name => typeof QoL.profileRuntime?.[name] !== 'function');
+        const missing = required.filter(name => typeof QoL.profileRuntime?.[name] !== 'function');
         let legacyBindings = [];
         try { legacyBindings = legacy?.getBindings?.() || []; } catch (_) {}
-
         return {
-            version: '1.1.0-read',
-            ready: missing.length === 0,
-            readOnly: true,
-            missingMethods: missing,
-            legacyPresent: !!legacy,
-            legacyVersion: legacy?.VERSION || legacy?.version || null,
-            activeProfileId: profileGetActiveProfileId(),
-            productionBindingCount: profileGetBindings().length,
-            legacyBindingCount: Array.isArray(legacyBindings) ? legacyBindings.length : null,
-            conflictRule: 'same-physical-trigger+same-gesture',
-            gestureResolutionActive: false
+            version:'1.2.0-mutate',
+            ready:missing.length === 0,
+            mutationReady:missing.length === 0,
+            readOnly:false,
+            takeoverActive:false,
+            missingMethods:missing,
+            legacyPresent:!!legacy,
+            legacyVersion:legacy?.VERSION || legacy?.version || null,
+            activeProfileId:profileGetActiveProfileId(),
+            productionBindingCount:profileGetBindings().length,
+            legacyBindingCount:Array.isArray(legacyBindings) ? legacyBindings.length : null,
+            conflictRule:'same-physical-trigger+same-gesture',
+            gestureResolutionActive:false,
+            serverPersistence:{
+                lastPersistAt:profileLastPersistAt,
+                lastError:profileLastPersistError ? String(profileLastPersistError?.message || profileLastPersistError) : null
+            }
         };
     }
 
@@ -923,42 +1142,58 @@
         const config = profileConfig();
         const activeProfileId = profileGetActiveProfileId();
         const profiles = profileItems();
-
         return {
-            version: '1.1.0-read',
-            source: config?.source || null,
-            authenticated: config?.authenticated === true,
+            version:'1.2.0-mutate',
+            source:config?.source || null,
+            authenticated:config?.authenticated === true,
             activeProfileId,
-            profileIds: Object.keys(profiles),
-            activeProfile: profileGetProfile(activeProfileId),
-            bindings: profileGetBindings(activeProfileId),
-            bindingCount: profileGetBindings(activeProfileId).length,
-            readOnly: true,
-            compatibilityReady: true,
-            conflictRule: 'same-physical-trigger+same-gesture',
-            gestureResolutionActive: false
+            profileIds:Object.keys(profiles),
+            activeProfile:profileGetProfile(activeProfileId),
+            bindings:profileGetBindings(activeProfileId),
+            bindingCount:profileGetBindings(activeProfileId).length,
+            readOnly:false,
+            persistenceReady:true,
+            takeoverActive:false,
+            compatibilityReady:true,
+            conflictRule:'same-physical-trigger+same-gesture',
+            gestureResolutionActive:false,
+            lastPersistAt:profileLastPersistAt,
+            lastPersistError:profileLastPersistError ? String(profileLastPersistError?.message || profileLastPersistError) : null
         };
     }
 
     QoL.profileRuntime = Object.freeze({
-        version: '1.1.0-read',
-        ACTION_META: PROFILE_ACTION_META,
-        getState: profileGetState,
-        getActiveProfileId: profileGetActiveProfileId,
-        getProfile: profileGetProfile,
-        getActiveProfile: profileGetActiveProfile,
-        getBindings: profileGetBindings,
-        getBinding: profileGetBinding,
-        getDefaultBindings: profileGetDefaultBindings,
-        getActionMeta: profileGetActionMeta,
-        isGlobalAction: profileIsGlobalAction,
-        isTextHandoffAction: profileIsTextHandoffAction,
-        normalizeTrigger: profileNormalizeTrigger,
-        makeKeyboardBinding: profileMakeKeyboardBinding,
-        makeCapturedBinding: profileMakeCapturedBinding,
-        analyzeConflicts: profileAnalyzeConflicts,
-        getCriticalActionsWithoutBindings: profileGetCriticalActionsWithoutBindings,
-        compatibilityReport: profileCompatibilityReport
+        version:'1.2.0-mutate',
+        ACTION_META:PROFILE_ACTION_META,
+        getState:profileGetState,
+        getActiveProfileId:profileGetActiveProfileId,
+        getProfile:profileGetProfile,
+        getActiveProfile:profileGetActiveProfile,
+        getBindings:profileGetBindings,
+        getBinding:profileGetBinding,
+        getDefaultBindings:profileGetDefaultBindings,
+        getActionMeta:profileGetActionMeta,
+        isGlobalAction:profileIsGlobalAction,
+        isTextHandoffAction:profileIsTextHandoffAction,
+        normalizeTrigger:profileNormalizeTrigger,
+        makeKeyboardBinding:profileMakeKeyboardBinding,
+        makeCapturedBinding:profileMakeCapturedBinding,
+        analyzeConflicts:profileAnalyzeConflicts,
+        getCriticalActionsWithoutBindings:profileGetCriticalActionsWithoutBindings,
+        persist:profilePersist,
+        flushPersistence:profileFlushPersistence,
+        setActiveProfile:profileSetActiveProfile,
+        createProfile:profileCreateProfile,
+        deleteProfile:profileDeleteProfile,
+        resetProfile:profileResetProfile,
+        replaceBindingsForAction:profileReplaceBindingsForAction,
+        clearBindingsForAction:profileClearBindingsForAction,
+        commitBinding:profileCommitBinding,
+        removeBinding:profileRemoveBinding,
+        setProfileBehavior:profileSetProfileBehavior,
+        on:profileOn,
+        off:profileOff,
+        compatibilityReport:profileCompatibilityReport
     });
 
     QoL.runtimeSettings = Object.freeze({
