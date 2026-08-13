@@ -1,0 +1,45 @@
+name: Build plugin
+
+on:
+  push:
+    branches: [Main, dev]
+  pull_request:
+    branches: [Main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore ./Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj
+
+      - name: Publish
+        run: dotnet publish ./Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj -c Release -o ./artifacts/publish --no-restore
+
+      - name: Package build artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ./artifacts/package
+          cp ./artifacts/publish/Jellyfin.Plugin.QoL.dll ./artifacts/package/
+          (cd ./artifacts/package && zip -9 ../JellyfinQoL-dev.zip Jellyfin.Plugin.QoL.dll)
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyfinQoL-${{ github.sha }}
+          path: ./artifacts/JellyfinQoL-dev.zip
+          if-no-files-found: error
+          retention-days: 14

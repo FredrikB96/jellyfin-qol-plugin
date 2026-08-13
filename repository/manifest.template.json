@@ -1,0 +1,21 @@
+[
+  {
+    "category": "General",
+    "guid": "829959a4-8720-4e78-9ed2-8c2d2bf7ff2a",
+    "name": "Jellyfin QoL Plugin",
+    "description": "Controller-independent Air Navigation and quality-of-life controls for Jellyfin Web/HTPC clients.",
+    "overview": "Air Navigation and QoL controls for Jellyfin",
+    "owner": "YOUR_GITHUB_OR_REPOSITORY_NAME",
+    "imageUrl": "https://YOUR-HOST/jellyfin-qol-logo.jpg",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial final-plugin settings foundation.",
+        "targetAbi": "10.11.8.0",
+        "sourceUrl": "https://YOUR-HOST/JellyfinQoL-1.0.0.0.zip",
+        "checksum": "REPLACE_WITH_MD5_FROM_BUILD_SCRIPT",
+        "timestamp": "2026-08-13T00:00:00Z"
+      }
+    ]
+  }
+]

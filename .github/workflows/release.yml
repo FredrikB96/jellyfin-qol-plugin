@@ -1,0 +1,159 @@
+name: Release Jellyfin plugin
+
+on:
+  push:
+    tags:
+      - 'v*.*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Four-part plugin version, e.g. 1.0.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION='${{ inputs.version }}'
+            TAG="v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be four numeric parts, e.g. 1.0.2.0" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Require tagged commit on Main
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          git fetch origin Main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/Main || {
+            echo 'Release tags must point to a commit contained in Main.' >&2
+            exit 1
+          }
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.version.outputs.version }}'
+          dotnet publish ./Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj \
+            -c Release \
+            -o ./artifacts/publish \
+            -p:Version="$VERSION" \
+            -p:FileVersion="$VERSION" \
+            -p:AssemblyVersion="$VERSION"
+
+      - name: Package ZIP and checksum
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.version.outputs.version }}'
+          ZIP="JellyfinQoL-${VERSION}.zip"
+          mkdir -p ./artifacts/release
+          (cd ./artifacts/publish && zip -9 "../release/$ZIP" Jellyfin.Plugin.QoL.dll)
+          MD5="$(md5sum "./artifacts/release/$ZIP" | awk '{print $1}')"
+          echo "$MD5  $ZIP" > "./artifacts/release/$ZIP.md5"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "md5=$MD5" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.version.outputs.tag }}'
+          ZIP='${{ steps.package.outputs.zip }}'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "./artifacts/release/$ZIP" \
+              "./artifacts/release/$ZIP.md5" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              "./artifacts/release/$ZIP" \
+              "./artifacts/release/$ZIP.md5" \
+              --title "Jellyfin QoL $TAG" \
+              --generate-notes
+          fi
+
+      - name: Update Jellyfin repository manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CHECKSUM: ${{ steps.package.outputs.md5 }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          path = Path('repository/manifest.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          plugin = data[0]
+          version = os.environ['VERSION']
+          repo = os.environ['REPOSITORY']
+          release = {
+              'version': version,
+              'changelog': f'Release {version}. See GitHub release notes for details.',
+              'targetAbi': '10.11.8.0',
+              'sourceUrl': f'https://github.com/{repo}/releases/download/v{version}/JellyfinQoL-{version}.zip',
+              'checksum': os.environ['CHECKSUM'],
+              'timestamp': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
+          }
+          existing = [v for v in plugin.get('versions', []) if v.get('version') != version]
+          plugin['versions'] = [release, *existing]
+          plugin['owner'] = repo.split('/')[0]
+          plugin['imageUrl'] = f'https://raw.githubusercontent.com/{repo}/Main/repository/jellyfin-qol-logo.jpg'
+          path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Commit manifest to Main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add repository/manifest.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: update plugin manifest for v${{ steps.version.outputs.version }}"
+          git push origin HEAD:Main
+
+      - name: Upload release build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JellyfinQoL-${{ steps.version.outputs.version }}
+          path: ./artifacts/release/*
+          if-no-files-found: error
+          retention-days: 30

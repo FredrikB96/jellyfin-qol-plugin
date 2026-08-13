@@ -1,0 +1,247 @@
+<div id="JellyfinQoLUserSettingsPage" data-role="page" class="page libraryPage userPreferencesPage noSecondaryNavPage mainAnimatedPage" data-title="QoL Settings" data-backbutton="true">
+    <style>
+        /*
+         * Keep custom CSS intentionally small. The page now uses Jellyfin's
+         * own settingsContainer / verticalSection / sectionTitle / input /
+         * select / checkbox / button classes for the normal layout.
+         */
+        #JellyfinQoLUserSettingsPage .qol-page-intro { margin-bottom: 2.2em; }
+        #JellyfinQoLUserSettingsPage .qol-page-intro .fieldDescription { margin-top: .35em; }
+        #JellyfinQoLUserSettingsPage .qol-user-section { margin-bottom: 0; }
+        #JellyfinQoLUserSettingsPage .qol-user-section > .fieldDescription { margin: -.15em 0 1.2em; }
+        #JellyfinQoLUserSettingsPage .qol-user-subsection { margin-top: 1.7em; }
+        #JellyfinQoLUserSettingsPage .qol-user-subsection > h3 { margin: 0 0 .65em; font-size: 1.12em; }
+        #JellyfinQoLUserSettingsPage .qol-actions { display:flex; flex-wrap:wrap; gap:.65em; margin:1em 0; }
+        #JellyfinQoLUserSettingsPage .qol-profile-row { display:flex; flex-wrap:wrap; gap:.65em; align-items:flex-end; margin-bottom:1em; }
+        #JellyfinQoLUserSettingsPage .qol-profile-row .selectContainer { min-width:240px; flex:1 1 320px; margin-bottom:0; }
+        #JellyfinQoLUserSettingsPage .qol-binding-table { width:100%; border-collapse:collapse; margin-top:.75em; }
+        #JellyfinQoLUserSettingsPage .qol-binding-table th,
+        #JellyfinQoLUserSettingsPage .qol-binding-table td { padding:.7em .45em; text-align:left; vertical-align:middle; border-bottom:1px solid rgba(255,255,255,.08); }
+        #JellyfinQoLUserSettingsPage .qol-binding-table th { opacity:.8; font-weight:500; }
+        #JellyfinQoLUserSettingsPage .qol-binding-table input,
+        #JellyfinQoLUserSettingsPage .qol-binding-table select { width:100%; box-sizing:border-box; }
+        #JellyfinQoLUserSettingsPage .qol-status { white-space:pre-wrap; margin-top:.8em; padding:.8em 0; opacity:.8; }
+        #JellyfinQoLUserSettingsPage .qol-protected-grid { display:grid; grid-template-columns:64px minmax(130px,1fr) 105px minmax(130px,1fr) minmax(100px,1fr) auto; gap:.55em; align-items:center; margin:.65em 0; }
+        #JellyfinQoLUserSettingsPage .qol-bottom-actions { margin-top:1.5em; }
+        #JellyfinQoLUserSettingsPage .qol-bottom-actions .button-submit,
+        #JellyfinQoLUserSettingsPage .qol-bottom-actions .button-cancel { margin-top:.7em; }
+        #JellyfinQoLUserSettingsPage textarea { box-sizing:border-box; width:100%; }
+        @media(max-width:900px) {
+            #JellyfinQoLUserSettingsPage .qol-binding-table { display:block; overflow-x:auto; }
+            #JellyfinQoLUserSettingsPage .qol-protected-grid { grid-template-columns:64px 1fr 100px; }
+            #JellyfinQoLUserSettingsPage .qol-protected-grid > *:nth-child(n+4) { grid-column:span 3; }
+        }
+    </style>
+
+    <div class="settingsContainer padded-left padded-right padded-bottom-page">
+        <form id="JellyfinQoLUserSettingsForm" style="margin:0 auto">
+            <div class="verticalSection verticalSection-extrabottompadding qol-page-intro">
+                <h2 class="sectionTitle">QoL Settings</h2>
+                <div class="fieldDescription">Your Jellyfin QoL preferences. Settings follow your Jellyfin user unless marked “This device”.</div>
+            </div>
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="general">
+                <h2 class="sectionTitle">General</h2>
+                <div class="fieldDescription">The settings you are most likely to change.</div>
+
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" data-scope="client" data-path="airNavEnabled" />
+                    <span>Enable Air Navigation on this device</span>
+                </label>
+
+                <div class="selectContainer">
+                    <label class="selectLabel" for="qolUserActiveProfile">Active profile on this device</label>
+                    <select is="emby-select" id="qolUserActiveProfile" class="emby-select-withcolor emby-select" data-scope="client" data-path="activeProfileId"></select>
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel">Media card OK / Activate</label>
+                    <select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="behavior.cardActivate">
+                        <option value="openDetails">Open details</option>
+                        <option value="play">Play immediately</option>
+                        <option value="quickActions">Open quick actions</option>
+                    </select>
+                </div>
+
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="notifications.airNavToggle" /><span>Show notification when AirNav is enabled/disabled</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="notifications.profileChanged" /><span>Show notification when active profile changes</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="client" data-path="mouseClickClearsFocus" /><span>Mouse/touch click clears AirNav visual focus until next AirNav navigation input</span></label>
+
+                <div class="qol-actions">
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="session-off">Turn navigation off for this session</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="apply-live">Apply saved settings to current prototype runtime</button>
+                </div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="inputs">
+                <h2 class="sectionTitle">Inputs &amp; Profiles</h2>
+                <div class="fieldDescription">Profiles, keybind recording, gestures, double press, long press, and directional repeat behavior.</div>
+
+                <div class="qol-profile-row">
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="qolUserProfileSelector">Profile</label>
+                        <select is="emby-select" id="qolUserProfileSelector" class="emby-select-withcolor emby-select"></select>
+                    </div>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="profile-create">Create</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="profile-delete">Delete</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="profile-reset">Reset profile</button>
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel">Profile switching</label>
+                    <select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="profiles.switchMode">
+                        <option value="manual">Manual</option>
+                        <option value="automatic">Automatic when input/profile can be identified</option>
+                        <option value="combination">Combination of automatic + manual</option>
+                    </select>
+                </div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="profiles.syncAcrossUser" /><span>Synchronize profile definitions with this Jellyfin user</span></label>
+
+                <div class="qol-user-subsection">
+                    <h3>Keybinds</h3>
+                    <div class="fieldDescription">Normal navigation inputs are immediate. Gesture-capable bindings may use Single, Double, or Long press. Unimplemented recording paths log to the console.</div>
+                    <table class="qol-binding-table">
+                        <thead><tr><th>Action</th><th>Recorded input</th><th>Gesture</th><th>Long press (ms)</th><th>Repeat</th><th></th></tr></thead>
+                        <tbody id="qolUserBindings"></tbody>
+                    </table>
+                </div>
+
+                <div class="qol-user-subsection">
+                    <h3>Gesture &amp; repeat timing</h3>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Double-press window (ms)</label><input is="emby-input" type="number" min="100" max="1000" step="10" data-scope="user" data-path="gestures.doublePressMs" /></div>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Long-press threshold (ms)</label><input is="emby-input" type="number" min="300" max="10000" step="100" data-scope="user" data-path="gestures.longPressMs" /></div>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Directional repeat delay (ms)</label><input is="emby-input" type="number" min="100" max="2000" step="10" data-scope="user" data-path="gestures.repeatDelayMs" /></div>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Directional repeat interval (ms)</label><input is="emby-input" type="number" min="25" max="1000" step="5" data-scope="user" data-path="gestures.repeatIntervalMs" /></div>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="gestures.accelerationEnabled" /><span>Accelerate directional navigation while held</span></label>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Fastest repeat interval (ms)</label><input is="emby-input" type="number" min="20" max="500" step="5" data-scope="user" data-path="gestures.minRepeatIntervalMs" /></div>
+                </div>
+
+                <div class="qol-user-subsection">
+                    <h3>Profile import / export</h3>
+                    <textarea is="emby-input" id="qolUserProfileJson" rows="7" style="width:100%;box-sizing:border-box"></textarea>
+                    <div class="qol-actions">
+                        <button is="emby-button" type="button" class="raised emby-button" data-qol-command="profile-export">Export selected profile</button>
+                        <button is="emby-button" type="button" class="raised emby-button" data-qol-command="profile-import">Import profile JSON</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="navigation">
+                <h2 class="sectionTitle">Navigation</h2>
+                <div class="fieldDescription">Directional movement, quick actions, Back/Home/Menu behavior, and unknown-page fallback.</div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="navigation.clampAtEdges" /><span>Stay on current item at navigation edges</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="navigation.preservePreferredX" /><span>Preserve horizontal screen position when moving between rows</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="navigation.returnByGeometry" /><span>Returning to a previous row chooses the current geometrically closest item</span></label>
+                <div class="selectContainer"><label class="selectLabel">Unknown page</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="failure.unknownPage"><option value="generic">Try generic navigation</option><option value="native">Yield to native Jellyfin</option></select></div>
+
+                <div class="qol-user-subsection">
+                    <h3>Quick actions</h3>
+                    <div class="selectContainer"><label class="selectLabel">Enter card quick actions</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="quickActions.entry"><option value="menu">Dedicated Menu / Item Actions action</option><option value="activateLong">Long-press Activate</option><option value="disabled">Disabled</option></select></div>
+                    <div class="selectContainer"><label class="selectLabel">Initial quick action</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="quickActions.defaultAction"><option value="play">Play if available</option><option value="first">First visible action</option></select></div>
+                </div>
+
+                <div class="qol-user-subsection">
+                    <h3>Back / Home / Menu</h3>
+                    <div class="selectContainer"><label class="selectLabel">BACK on normal page</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="back.page"><option value="homeFallback">Previous internal page; Home fallback</option><option value="previousOnly">Previous internal page only</option></select></div>
+                    <div class="selectContainer"><label class="selectLabel">BACK in modal</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="back.modal"><option value="close">Close current modal / return to parent modal</option></select></div>
+                    <div class="selectContainer"><label class="selectLabel">HOME action</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="home.action"><option value="navigateRescan">Go Home + request fresh scan/content refresh</option><option value="hardReload">Go Home + browser reload</option><option value="navigateOnly">Go Home only</option></select></div>
+                    <div class="selectContainer"><label class="selectLabel">MENU on media card</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="menu.onCard"><option value="quickActions">Open quick actions</option><option value="disabled">Do nothing</option></select></div>
+                    <div class="selectContainer"><label class="selectLabel">MENU in player</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="menu.inPlayer"><option value="toggleControl">Toggle player navigation / OSD control</option><option value="disabled">Do nothing</option></select></div>
+                </div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="focus-scroll">
+                <h2 class="sectionTitle">Focus &amp; Scrolling</h2>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Selected item scale</label><input is="emby-input" type="number" min="1" max="1.25" step="0.005" data-scope="user" data-path="focus.scale" /></div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="focus.applyScale" /><span>Enlarge selected item</span></label>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Outline width (px)</label><input is="emby-input" type="number" min="0" max="12" data-scope="user" data-path="focus.outlineWidthPx" /></div>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Outline offset (px)</label><input is="emby-input" type="number" min="0" max="16" data-scope="user" data-path="focus.outlineOffsetPx" /></div>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Border radius (px)</label><input is="emby-input" type="number" min="0" max="64" data-scope="user" data-path="focus.borderRadiusPx" /></div>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Focus animation (ms)</label><input is="emby-input" type="number" min="0" max="1000" data-scope="user" data-path="focus.transitionMs" /></div>
+                <div class="selectContainer"><label class="selectLabel">Scroll behavior</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="scroll.behavior"><option value="smooth">Smooth</option><option value="auto">Immediate</option></select></div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="scroll.horizontalOnlyWhenNeeded" /><span>Horizontal rows scroll only when the selected item would leave the screen</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="scroll.verticalCenter" /><span>Keep selected row centered vertically</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="scroll.headerSelectionScrollTop" /><span>Entering header returns page to top</span></label>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Horizontal trigger inset (px)</label><input is="emby-input" type="number" min="0" max="500" data-scope="user" data-path="scroll.horizontalTriggerInsetPx" /></div>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Horizontal resting inset (px)</label><input is="emby-input" type="number" min="0" max="500" data-scope="user" data-path="scroll.horizontalRestInsetPx" /></div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="player">
+                <h2 class="sectionTitle">Player</h2>
+                <div class="selectContainer"><label class="selectLabel">AirNav player ownership</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="player.ownership"><option value="dedicated">Only after dedicated player-control action</option><option value="immediate">Arrows control OSD immediately</option><option value="native">Native Jellyfin only</option></select></div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="player.allowOsdTimeout" /><span>Allow Jellyfin OSD to hide normally after inactivity</span></label>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Volume step (%)</label><input is="emby-input" type="number" min="1" max="25" data-scope="user" data-path="player.volumeStep" /></div>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Seek step (seconds)</label><input is="emby-input" type="number" min="1" max="600" data-scope="user" data-path="player.seekSeconds" /></div>
+                <div class="selectContainer"><label class="selectLabel">PLAY/PAUSE outside player</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="player.playPauseOutside"><option value="disabled">Do nothing</option><option value="playSelected">Play selected item</option><option value="configurable">Profile-defined</option></select></div>
+                <div class="selectContainer"><label class="selectLabel">BACK in player</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="back.player"><option value="closeContextThenExit">Close player context first; otherwise leave playback</option><option value="exit">Leave playback immediately</option></select></div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="search-forms">
+                <h2 class="sectionTitle">Search &amp; Forms</h2>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="search.handoffEnabled" /><span>Enable search/text handoff</span></label>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="user" data-path="search.globalActionsWhileTyping" /><span>Allow selected global AirNav actions while typing</span></label>
+                <div class="selectContainer"><label class="selectLabel">UP/DOWN while editing search</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="search.directionExit"><option value="nearest">Leave field and select nearest navigable item</option><option value="native">Keep native text-field ownership</option></select></div>
+                <div class="selectContainer"><label class="selectLabel">Dropdown BACK</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="forms.dropdownBack"><option value="restore">Restore original option and close</option><option value="keep">Keep current option and close</option></select></div>
+                <div class="selectContainer"><label class="selectLabel">Number/slider BACK</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="user" data-path="forms.numericBack"><option value="saveExit">Keep value and leave edit mode</option><option value="restore">Restore original value</option></select></div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="helper-htpc">
+                <h2 class="sectionTitle">Windows Helper &amp; HTPC</h2>
+                <div class="fieldDescription">These settings apply only to this device/browser/WebView.</div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="client" data-path="helperEnabled" /><span>Use Windows protected-input helper on this device</span></label>
+                <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Helper URL</label><input is="emby-input" type="text" data-scope="client" data-path="helperBaseUrl" /></div>
+                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="client" data-path="helperPersistentWarning" /><span>Show warning when Guard is active but helper is unavailable</span></label>
+                <div class="qol-actions">
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="helper-status">Check helper status</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="helper-load">Load protected inputs</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="helper-save">Save protected inputs</button>
+                </div>
+                <div id="qolUserHelperStatus" class="qol-status">Helper status not checked.</div>
+
+                <div class="qol-user-subsection">
+                    <h3>Protected inputs</h3>
+                    <div class="fieldDescription">Physical Windows key identity → neutral synthetic browser key. AirNav actions and gestures are configured above, not here.</div>
+                    <div id="qolUserProtectedInputs"></div>
+                    <div class="qol-actions">
+                        <button is="emby-button" type="button" class="raised emby-button" data-qol-command="helper-add">Add protected input</button>
+                        <button is="emby-button" type="button" class="raised emby-button" data-qol-command="helper-record">Record physical Windows key</button>
+                    </div>
+                </div>
+
+                <div class="qol-user-subsection">
+                    <h3>HTPC exit</h3>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="client" data-path="htpcExit.enabled" /><span>Enable HTPC exit action on this device</span></label>
+                    <div class="selectContainer"><label class="selectLabel">Exit gesture</label><select is="emby-select" class="emby-select-withcolor emby-select" data-scope="client" data-path="htpcExit.gesture"><option value="long">Long press</option><option value="double">Double press</option><option value="single">Single press</option><option value="disabled">Unassigned</option></select></div>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Long-press duration (ms)</label><input is="emby-input" type="number" min="300" max="10000" step="100" data-scope="client" data-path="htpcExit.longPressMs" /></div>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-scope="client" data-path="htpcExit.confirmation" /><span>Ask for confirmation before exiting</span></label>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Show loading overlay if exit exceeds (ms)</label><input is="emby-input" type="number" min="0" max="30000" step="500" data-scope="client" data-path="htpcExit.loadingThresholdMs" /></div>
+                    <div class="inputContainer"><label class="inputLabel inputLabelUnfocused">Frontend after exit</label><input is="emby-input" type="text" data-scope="client" data-path="htpcExit.frontendName" /></div>
+                    <div class="qol-actions"><button is="emby-button" type="button" class="raised emby-button" data-qol-command="htpc-test-exit">Test exit pipeline</button></div>
+                </div>
+            </section>
+
+            <section class="qol-user-section verticalSection verticalSection-extrabottompadding" data-qol-section="advanced">
+                <h2 class="sectionTitle">Advanced &amp; Diagnostics</h2>
+                <div class="qol-actions">
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="diag-runtime">Print runtime state</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="diag-scanner">Scanner rescan</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="diag-geometry">Geometry snapshot</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="diag-focus">Focus snapshot</button>
+                </div>
+                <div class="qol-actions">
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="reset-user">Reset my QoL settings to defaults</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="reset-client">Reset this device's local settings</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="export-user">Export my settings JSON</button>
+                    <button is="emby-button" type="button" class="raised emby-button" data-qol-command="import-user">Import my settings JSON</button>
+                </div>
+                <textarea is="emby-textarea" class="emby-textarea textarea-mono" id="qolUserSettingsJson" rows="8" style="width:100%;box-sizing:border-box"></textarea>
+                <div id="qolUserSaveStatus" class="qol-status">No unsaved changes.</div>
+            </section>
+
+            <div class="verticalSection verticalSection-extrabottompadding qol-bottom-actions">
+                <button is="emby-button" type="submit" class="raised button-submit block btnSave emby-button"><span>Save</span></button>
+                <button is="emby-button" type="button" class="raised button-cancel block emby-button" data-qol-command="revert"><span>Revert unsaved changes</span></button>
+                <button is="emby-button" type="button" class="raised button-cancel block emby-button" data-qol-command="close"><span>Close</span></button>
+            </div>
+        </form>
+    </div>
+</div>

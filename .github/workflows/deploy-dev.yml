@@ -1,0 +1,75 @@
+name: Deploy dev to Jellyfin
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jellyfin-qol-dev-deploy
+  cancel-in-progress: true
+
+env:
+  JELLYFIN_CONTAINER: jellyfin
+  JELLYFIN_PLUGIN_DIR: /docker/jellyfin/data/plugins/QoL_Plugin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish
+        run: dotnet publish ./Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj -c Release -o ./artifacts/publish
+
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyfin-qol-dev-dll
+          path: ./artifacts/publish/Jellyfin.Plugin.QoL.dll
+          if-no-files-found: error
+          retention-days: 2
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted, linux, x64, jellyfin-qol]
+    steps:
+      - name: Download DLL
+        uses: actions/download-artifact@v4
+        with:
+          name: jellyfin-qol-dev-dll
+          path: ./deploy
+
+      - name: Verify Docker access
+        run: docker version
+
+      - name: Install plugin DLL
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$JELLYFIN_PLUGIN_DIR"
+          test -w "$JELLYFIN_PLUGIN_DIR" || {
+            echo "Runner cannot write to $JELLYFIN_PLUGIN_DIR" >&2
+            exit 1
+          }
+          cp ./deploy/Jellyfin.Plugin.QoL.dll \
+            "$JELLYFIN_PLUGIN_DIR/Jellyfin.Plugin.QoL.dll"
+
+      - name: Restart Jellyfin
+        run: docker restart "$JELLYFIN_CONTAINER"
+
+      - name: Show recent plugin logs
+        shell: bash
+        run: |
+          sleep 5
+          docker logs "$JELLYFIN_CONTAINER" --since 2m 2>&1 | \
+            grep -iE 'Jellyfin QoL|Jellyfin.Plugin.QoL|plugin' || true

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Jellyfin QoL Plugin</title>
+</head>
+<body>
+<div id="JellyfinQoLAdminConfigPage"
+     data-role="page"
+     class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="JellyfinQoLAdminConfigForm">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">Jellyfin QoL Plugin — Global Settings</h2>
+                </div>
+                <p class="fieldDescription">
+                    Administrator-only server defaults. User preferences are configured under
+                    Profile → Settings → QoL Settings. Client enrollment, Windows helper state,
+                    and HTPC-only settings are device-local and are not stored here.
+                </p>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">General defaults</h3>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="qolGlobalDefaultProfile">Default profile ID</label>
+                        <input is="emby-input" id="qolGlobalDefaultProfile" type="text" data-path="defaultProfileId" />
+                        <div class="fieldDescription">Profile selected when a user has no saved preference.</div>
+                    </div>
+
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="qolGlobalCardActivate">Default card activation</label>
+                        <select is="emby-select" id="qolGlobalCardActivate" class="emby-select-withcolor emby-select" data-path="behavior.cardActivate">
+                            <option value="openDetails">Open details</option>
+                            <option value="play">Play immediately</option>
+                            <option value="quickActions">Open quick actions</option>
+                        </select>
+                    </div>
+
+                    <label class="checkboxContainer">
+                        <input is="emby-checkbox" type="checkbox" data-path="search.handoffEnabled" />
+                        <span>Enable search handoff by default</span>
+                    </label>
+
+                    <label class="checkboxContainer">
+                        <input is="emby-checkbox" type="checkbox" data-path="notifications.airNavToggle" />
+                        <span>Show AirNav enabled/disabled notification by default</span>
+                    </label>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Input & gesture defaults</h3>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="qolGlobalDoublePress">Double-press window (ms)</label>
+                        <input is="emby-input" id="qolGlobalDoublePress" type="number" min="100" max="1000" step="10" data-path="gestures.doublePressMs" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="qolGlobalLongPress">Long-press threshold (ms)</label>
+                        <input is="emby-input" id="qolGlobalLongPress" type="number" min="300" max="10000" step="100" data-path="gestures.longPressMs" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="qolGlobalRepeatDelay">Directional repeat delay (ms)</label>
+                        <input is="emby-input" id="qolGlobalRepeatDelay" type="number" min="100" max="2000" step="10" data-path="gestures.repeatDelayMs" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="qolGlobalRepeatInterval">Directional repeat interval (ms)</label>
+                        <input is="emby-input" id="qolGlobalRepeatInterval" type="number" min="25" max="1000" step="5" data-path="gestures.repeatIntervalMs" />
+                    </div>
+                    <label class="checkboxContainer">
+                        <input is="emby-checkbox" type="checkbox" data-path="gestures.accelerationEnabled" />
+                        <span>Enable directional hold acceleration by default</span>
+                    </label>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Navigation defaults</h3>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="navigation.clampAtEdges" /><span>Clamp at row/page edges</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="navigation.preservePreferredX" /><span>Preserve horizontal position during vertical moves</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="navigation.returnByGeometry" /><span>Return between rows using current geometry</span></label>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="qolGlobalUnknownPage">Unknown page behavior</label>
+                        <select is="emby-select" id="qolGlobalUnknownPage" class="emby-select-withcolor emby-select" data-path="failure.unknownPage">
+                            <option value="generic">Try generic navigation</option>
+                            <option value="native">Yield to native Jellyfin</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Focus & scrolling defaults</h3>
+                    <div class="inputContainer"><label class="inputLabel">Focus scale</label><input is="emby-input" type="number" min="1" max="1.25" step="0.005" data-path="focus.scale" /></div>
+                    <div class="inputContainer"><label class="inputLabel">Outline width (px)</label><input is="emby-input" type="number" min="0" max="12" step="1" data-path="focus.outlineWidthPx" /></div>
+                    <div class="inputContainer"><label class="inputLabel">Focus animation (ms)</label><input is="emby-input" type="number" min="0" max="1000" step="10" data-path="focus.transitionMs" /></div>
+                    <div class="selectContainer">
+                        <label class="selectLabel">Scroll behavior</label>
+                        <select is="emby-select" class="emby-select-withcolor emby-select" data-path="scroll.behavior">
+                            <option value="smooth">Smooth</option>
+                            <option value="auto">Immediate</option>
+                        </select>
+                    </div>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="scroll.verticalCenter" /><span>Center selected row vertically</span></label>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="scroll.headerSelectionScrollTop" /><span>Return page to top when focus enters header</span></label>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Player defaults</h3>
+                    <div class="selectContainer">
+                        <label class="selectLabel">Player ownership</label>
+                        <select is="emby-select" class="emby-select-withcolor emby-select" data-path="player.ownership">
+                            <option value="dedicated">Dedicated player-control action</option>
+                            <option value="immediate">Arrows own OSD immediately</option>
+                            <option value="native">Native Jellyfin only</option>
+                        </select>
+                    </div>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="player.allowOsdTimeout" /><span>Allow OSD to hide after inactivity</span></label>
+                    <div class="inputContainer"><label class="inputLabel">Volume step (%)</label><input is="emby-input" type="number" min="1" max="25" data-path="player.volumeStep" /></div>
+                    <div class="inputContainer"><label class="inputLabel">Seek step (seconds)</label><input is="emby-input" type="number" min="1" max="600" data-path="player.seekSeconds" /></div>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Administrator / diagnostics</h3>
+                    <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="debug" /><span>Global debug mode</span></label>
+                    <div class="fieldDescription">Runtime application is intentionally a console stub until the final runtime bridge is migrated.</div>
+                    <div style="margin-top:1em; display:flex; gap:.6em; flex-wrap:wrap;">
+                        <button is="emby-button" type="button" class="raised emby-button" data-command="print-global">Print global settings</button>
+                        <button is="emby-button" type="button" class="raised emby-button" data-command="apply-global">Apply global defaults now (stub)</button>
+                        <button is="emby-button" type="button" class="raised emby-button" data-command="reset-global">Reset global defaults</button>
+                    </div>
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                        <span>Save global settings</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+<script type="text/javascript">
+(function () {
+    'use strict';
+
+    const PAGE = document.querySelector('#JellyfinQoLAdminConfigPage');
+    const FORM = PAGE.querySelector('#JellyfinQoLAdminConfigForm');
+    const PLUGIN_ID = '829959a4-8720-4e78-9ed2-8c2d2bf7ff2a';
+    const LOG = '[JellyfinQoL.AdminSettings]';
+    const STUB = '[JellyfinQoL.AdminSettings][STUB]';
+    const SCHEMA_VERSION = 2;
+
+    const DEFAULTS = {
+        defaultProfileId: 'default',
+        behavior: { cardActivate: 'openDetails' },
+        search: { handoffEnabled: true },
+        notifications: { airNavToggle: true },
+        gestures: { doublePressMs: 250, longPressMs: 3000, repeatDelayMs: 360, repeatIntervalMs: 115, accelerationEnabled: true },
+        navigation: { clampAtEdges: true, preservePreferredX: true, returnByGeometry: true },
+        failure: { unknownPage: 'generic' },
+        focus: { scale: 1.045, outlineWidthPx: 3, transitionMs: 120 },
+        scroll: { behavior: 'smooth', verticalCenter: true, headerSelectionScrollTop: true },
+        player: { ownership: 'dedicated', allowOsdTimeout: true, volumeStep: 5, seekSeconds: 10 },
+        debug: false
+    };
+
+    let config = null;
+    let state = clone(DEFAULTS);
+
+    function clone(value) { return JSON.parse(JSON.stringify(value)); }
+    function isObject(value) { return value && typeof value === 'object' && !Array.isArray(value); }
+    function merge(base, incoming) {
+        const out = clone(base);
+        if (!isObject(incoming)) return out;
+        Object.keys(incoming).forEach(key => {
+            out[key] = isObject(out[key]) && isObject(incoming[key]) ? merge(out[key], incoming[key]) : clone(incoming[key]);
+        });
+        return out;
+    }
+    function getPath(object, path) { return path.split('.').reduce((value, key) => value == null ? undefined : value[key], object); }
+    function setPath(object, path, value) {
+        const parts = path.split('.');
+        let target = object;
+        parts.slice(0, -1).forEach(part => { if (!isObject(target[part])) target[part] = {}; target = target[part]; });
+        target[parts[parts.length - 1]] = value;
+    }
+    function readElement(element) {
+        if (element.type === 'checkbox') return !!element.checked;
+        if (element.type === 'number') return element.value === '' ? null : Number(element.value);
+        return element.value;
+    }
+    function writeElement(element, value) {
+        if (element.type === 'checkbox') element.checked = !!value;
+        else element.value = value == null ? '' : value;
+    }
+    function render() {
+        PAGE.querySelectorAll('[data-path]').forEach(element => writeElement(element, getPath(state, element.dataset.path)));
+    }
+
+    async function load() {
+        Dashboard.showLoadingMsg();
+        try {
+            config = await ApiClient.getPluginConfiguration(PLUGIN_ID);
+            let parsed = {};
+            try { parsed = JSON.parse(config.SettingsJson || config.settingsJson || '{}'); } catch (error) { console.warn(LOG, 'Invalid saved JSON; using defaults.', error); }
+            state = merge(DEFAULTS, parsed.global || parsed || {});
+            render();
+            console.log(LOG, 'Global settings loaded.', state);
+        } finally {
+            Dashboard.hideLoadingMsg();
+        }
+    }
+
+    PAGE.addEventListener('change', event => {
+        const element = event.target.closest?.('[data-path]');
+        if (!element) return;
+        setPath(state, element.dataset.path, readElement(element));
+        console.log(LOG, 'Global setting changed', { path: element.dataset.path, value: getPath(state, element.dataset.path) });
+    });
+
+    PAGE.addEventListener('click', event => {
+        const button = event.target.closest?.('[data-command]');
+        if (!button) return;
+        event.preventDefault();
+        switch (button.dataset.command) {
+            case 'print-global':
+                console.log(LOG, 'Global settings snapshot', clone(state));
+                break;
+            case 'apply-global':
+                console.log(STUB, 'Apply server-global defaults to final runtime', clone(state));
+                break;
+            case 'reset-global':
+                if (confirm('Reset Jellyfin QoL global defaults?')) {
+                    state = clone(DEFAULTS);
+                    render();
+                    console.log(LOG, 'Global defaults reset in the form. Save to persist.');
+                }
+                break;
+        }
+    });
+
+    FORM.addEventListener('submit', async event => {
+        event.preventDefault();
+        Dashboard.showLoadingMsg();
+        try {
+            config.SchemaVersion = SCHEMA_VERSION;
+            config.SettingsJson = JSON.stringify({ schemaVersion: SCHEMA_VERSION, global: state });
+            const result = await ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
+            Dashboard.processPluginConfigurationUpdateResult(result);
+            console.log(LOG, 'Global settings saved.', state);
+            console.log(STUB, 'Notify final runtime that global defaults changed', clone(state));
+        } finally {
+            Dashboard.hideLoadingMsg();
+        }
+    });
+
+    PAGE.addEventListener('pageshow', load);
+})();
+</script>
+</div>
+</body>
+</html>
