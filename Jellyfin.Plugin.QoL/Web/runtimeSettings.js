@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
@@ -540,6 +540,202 @@
         };
     }
 
+    // ---------------------------------------------------------------------
+    // Production profile projection.
+    //
+    // This is intentionally READ-ONLY in this migration step. The
+    // authoritative data remains runtimeConfig, which is resolved from
+    // server-global + user + client-local settings above.
+    //
+    // Existing prototype airKeybinds remains active until this projection has
+    // been verified. Input/recording/gesture ownership is migrated later.
+    // ---------------------------------------------------------------------
+
+    const PROFILE_ACTION_META = Object.freeze({
+        UP: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true }),
+        DOWN: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true }),
+        LEFT: Object.freeze({ critical:true, allowRepeat:true }),
+        RIGHT: Object.freeze({ critical:true, allowRepeat:true }),
+        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false }),
+        BACK: Object.freeze({ critical:true, allowRepeat:false }),
+        ENTER_ACTIONS: Object.freeze({ critical:false, allowRepeat:false }),
+        MENU: Object.freeze({ critical:false, allowRepeat:false }),
+        HOME: Object.freeze({ critical:false, allowRepeat:false }),
+        PLAY_PAUSE: Object.freeze({ critical:false, allowRepeat:false }),
+        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true }),
+        TOGGLE_SEARCH_HANDOFF: Object.freeze({ critical:false, allowRepeat:false, global:true }),
+        TOGGLE_SESSION_NAV: Object.freeze({ critical:false, allowRepeat:false, global:true }),
+        EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true })
+    });
+
+    function profileConfig() {
+        return runtimeConfig || QoL.runtimeConfig || null;
+    }
+
+    function profileItems() {
+        return profileConfig()?.profiles?.items || {};
+    }
+
+    function profileGetActiveProfileId() {
+        const config = profileConfig();
+        return config?.activeProfileId ||
+            config?.profiles?.activeProfileId ||
+            clientState?.activeProfileId ||
+            'default';
+    }
+
+    function profileGetProfile(profileId = null) {
+        const id = String(profileId || profileGetActiveProfileId());
+        const profile = profileItems()?.[id] || null;
+        return clone(profile);
+    }
+
+    function profileGetActiveProfile() {
+        return profileGetProfile(profileGetActiveProfileId());
+    }
+
+    function profileGetActionMeta(action) {
+        return clone(PROFILE_ACTION_META[String(action || '').toUpperCase()] || {});
+    }
+
+    function profileIsGlobalAction(action) {
+        return profileGetActionMeta(action).global === true;
+    }
+
+    function profileIsTextHandoffAction(action) {
+        return profileGetActionMeta(action).textHandoff === true;
+    }
+
+    function keyboardTriggerFromInput(input) {
+        const value = String(input || '').trim();
+        if (!value) return null;
+
+        // Browser/consumer keys do not reliably populate KeyboardEvent.code.
+        // Keep them key-based so synthetic GuardManager relays match too.
+        const keyOnly =
+            /^(Browser|Media|AudioVolume|Launch|Zoom|PrintScreen|Pause)/.test(value);
+
+        return {
+            type: 'keydown',
+            code: keyOnly ? null : value,
+            key: keyOnly ? value : null,
+            modifiers: {
+                ctrl: false,
+                alt: false,
+                shift: false,
+                meta: false
+            }
+        };
+    }
+
+    function profileBindingDescriptor(action, binding, profileId) {
+        if (!binding || typeof binding !== 'object') return null;
+
+        // Future profile schemas may already carry a neutral descriptor.
+        if (binding.adapter && binding.trigger) {
+            return {
+                ...clone(binding),
+                action: String(binding.action || action || '').toUpperCase(),
+                profileId: profileId || null,
+                gesture: binding.gesture || 'single'
+            };
+        }
+
+        const normalizedAction = String(binding.action || action || '').toUpperCase();
+        const trigger = keyboardTriggerFromInput(binding.input);
+
+        if (!normalizedAction || !trigger) return null;
+
+        const meta = PROFILE_ACTION_META[normalizedAction] || {};
+
+        return {
+            id: binding.id || `runtime:${profileId || 'default'}:${normalizedAction.toLowerCase()}`,
+            action: normalizedAction,
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger,
+            allowRepeat:
+                typeof binding.allowRepeat === 'boolean'
+                    ? binding.allowRepeat
+                    : meta.allowRepeat !== false,
+
+            // Gesture metadata is retained here but deliberately NOT resolved
+            // in this step. The later Gesture Resolver will own timing/phase.
+            gesture: binding.gesture || (meta.allowRepeat ? 'repeat' : 'single'),
+            longPressMs:
+                binding.longPressMs == null
+                    ? null
+                    : Number(binding.longPressMs),
+            profileId: profileId || null
+        };
+    }
+
+    function profileGetBindings(profileId = null, adapter = null) {
+        const id = String(profileId || profileGetActiveProfileId());
+        const profile = profileItems()?.[id];
+
+        if (!profile) return [];
+
+        const source = profile.bindings || {};
+        let entries;
+
+        if (Array.isArray(source)) {
+            entries = source.map(binding => [
+                String(binding?.action || ''),
+                binding
+            ]);
+        } else {
+            entries = Object.entries(source);
+        }
+
+        return entries
+            .map(([action, binding]) =>
+                profileBindingDescriptor(action, binding, id)
+            )
+            .filter(Boolean)
+            .filter(binding =>
+                adapter ? binding.adapter === adapter : true
+            );
+    }
+
+    function profileGetBinding(action, profileId = null) {
+        const normalized = String(action || '').toUpperCase();
+        return profileGetBindings(profileId)
+            .find(binding => binding.action === normalized) || null;
+    }
+
+    function profileGetState() {
+        const config = profileConfig();
+        const activeProfileId = profileGetActiveProfileId();
+        const profiles = profileItems();
+
+        return {
+            version: '1.0.0',
+            source: config?.source || null,
+            authenticated: config?.authenticated === true,
+            activeProfileId,
+            profileIds: Object.keys(profiles),
+            activeProfile: profileGetProfile(activeProfileId),
+            bindings: profileGetBindings(activeProfileId),
+            bindingCount: profileGetBindings(activeProfileId).length,
+            readOnly: true,
+            gestureResolutionActive: false
+        };
+    }
+
+    QoL.profileRuntime = Object.freeze({
+        version: '1.0.0',
+        ACTION_META: PROFILE_ACTION_META,
+        getState: profileGetState,
+        getActiveProfileId: profileGetActiveProfileId,
+        getProfile: profileGetProfile,
+        getActiveProfile: profileGetActiveProfile,
+        getBindings: profileGetBindings,
+        getBinding: profileGetBinding,
+        getActionMeta: profileGetActionMeta,
+        isGlobalAction: profileIsGlobalAction,
+        isTextHandoffAction: profileIsTextHandoffAction
+    });
     QoL.runtimeSettings = Object.freeze({
         version: VERSION,
         start,
