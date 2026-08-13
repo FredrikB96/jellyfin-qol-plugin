@@ -25,9 +25,13 @@
     <None Remove="Web\userSettingsPage.html" />
     <None Remove="Web\userSettingsPage.js" />
     <None Remove="Web\userSettingsBridge.js" />
+    <None Remove="Web\runtimeSettings.js" />
+    <None Remove="Web\clientBootstrap.js" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.js" />
     <EmbeddedResource Include="Web\userSettingsBridge.js" />
+    <EmbeddedResource Include="Web\runtimeSettings.js" />
+    <EmbeddedResource Include="Web\clientBootstrap.js" />
   </ItemGroup>
 </Project>
