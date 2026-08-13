@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     const LOG = '[JellyfinQoL.UserSettings]';
@@ -343,8 +343,22 @@
             logStub('Enable optional GuardManager companion', clientState.helperBaseUrl);
         }
 
-        logStub('Hydrate final keybind/gesture resolver from saved profile', { activeProfileId:clientState.activeProfileId, profile:selectedProfile() });
-        logStub('Apply final navigation/focus/scroll/player settings to migrated runtime', userState);
+        if (QoL.runtimeSettings?.refresh) {
+            try {
+                await QoL.runtimeSettings.refresh(`user-settings:${reason}`, { forceServer:true });
+                console.log(LOG, 'Production runtime settings refreshed after save/apply.');
+            } catch (error) {
+                console.warn(LOG, 'Production runtime settings refresh failed.', error);
+            }
+        } else {
+            logStub('Refresh production runtime settings after save/apply');
+        }
+
+        // Input/profiles/gestures and the remaining runtime consumers are the
+        // next migration step. The resolved settings are already available at
+        // window.JellyfinQoL.runtimeConfig.
+        logStub('Hydrate final input/profile/gesture runtime from resolved settings', { activeProfileId:clientState.activeProfileId, profile:selectedProfile() });
+        logStub('Apply settings to not-yet-migrated navigation/focus/player consumers', userState);
         logStub('Apply HTPC exit runtime bridge', clientState.htpcExit);
     }
 

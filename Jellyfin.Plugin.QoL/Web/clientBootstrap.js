@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
@@ -9,7 +9,7 @@
 
     const VERSION = '1.0.0';
     const LOG = '[JellyfinQoL.ClientBootstrap]';
-    const RESOURCE_ENDPOINT = 'web/ConfigurationPage?name=';
+    const RESOURCE_BASE = 'JellyfinQoL/Client/';
     const loadedResources = new Map();
     let started = false;
     let startingPromise = null;
@@ -19,14 +19,14 @@
     const MODULES = Object.freeze([
         {
             id: 'runtimeSettings',
-            resource: 'JellyfinQoLRuntimeSettings.js',
+            resource: 'runtimeSettings.js',
             required: true,
             ready: () => !!QoL.runtimeSettings?.start,
             start: () => QoL.runtimeSettings.start()
         },
         {
             id: 'userSettingsBridge',
-            resource: 'JellyfinQoLUserSettingsBridge.js',
+            resource: 'userSettingsBridge.js',
             required: true,
             ready: () => !!QoL.userSettingsBridge?.start,
             start: () => QoL.userSettingsBridge.start()
@@ -54,7 +54,7 @@
 
     function resourceUrl(name) {
         const cacheToken = `${VERSION}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        return ApiClient.getUrl(`${RESOURCE_ENDPOINT}${encodeURIComponent(name)}`) + `&qolcb=${encodeURIComponent(cacheToken)}`;
+        return ApiClient.getUrl(`${RESOURCE_BASE}${encodeURIComponent(name)}`) + `?qolcb=${encodeURIComponent(cacheToken)}`;
     }
 
     function loadScript(module) {
