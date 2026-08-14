@@ -2,19 +2,21 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.1.0') return;
+    if (QoL.userSettingsBridge?.version === '1.1.1') return;
 
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
     const PAGE_RESOURCE = 'JellyfinQoLUserSettingsPage';
     const SCRIPT_RESOURCE = 'JellyfinQoLUserSettingsPage.js';
+    const KEYBIND_RESOURCE = 'userSettingsKeybindIntegration.js';
 
     let observer = null;
     let scheduled = false;
     let opening = null;
     let hiddenSourcePage = null;
     let headerTitleSnapshot = null;
+    let keybindLoading = null;
 
     function setNativeHeaderTitle(title) {
         const element = document.querySelector('.skinHeader .pageTitle, .pageTitle');
@@ -41,6 +43,10 @@
 
     function configurationResourceUrl(name) {
         return ApiClient.getUrl(`web/ConfigurationPage?name=${encodeURIComponent(name)}`);
+    }
+
+    function clientResourceUrl(name) {
+        return ApiClient.getUrl(`JellyfinQoL/Client/${name}`);
     }
 
     function scheduleEnsureEntry() {
@@ -122,6 +128,55 @@
         });
     }
 
+    function loadKeybindIntegration() {
+        const existingRuntime = window.JellyfinQoL?.userSettingsKeybindIntegration;
+        if (existingRuntime) {
+            try { existingRuntime.decorateDirectionalRows?.(); } catch (_) {}
+            return Promise.resolve(existingRuntime);
+        }
+
+        if (keybindLoading) return keybindLoading;
+
+        keybindLoading = new Promise((resolve, reject) => {
+            const existingScript = document.querySelector('script[data-jellyfin-qol-keybind-settings]');
+            if (existingScript) {
+                const started = Date.now();
+                const timer = setInterval(() => {
+                    const runtime = window.JellyfinQoL?.userSettingsKeybindIntegration;
+                    if (runtime) {
+                        clearInterval(timer);
+                        resolve(runtime);
+                    } else if (Date.now() - started > 5000) {
+                        clearInterval(timer);
+                        reject(new Error('Timed out waiting for keybind settings integration.'));
+                    }
+                }, 50);
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.async = true;
+            script.dataset.jellyfinQolKeybindSettings = 'true';
+            script.src = clientResourceUrl(KEYBIND_RESOURCE) +
+                `?qolkeybind=${encodeURIComponent(Date.now().toString())}`;
+            script.onload = () => {
+                const runtime = window.JellyfinQoL?.userSettingsKeybindIntegration;
+                if (!runtime) {
+                    reject(new Error('Keybind settings integration loaded without registering runtime.'));
+                    return;
+                }
+                try { runtime.decorateDirectionalRows?.(); } catch (_) {}
+                resolve(runtime);
+            };
+            script.onerror = () => reject(new Error('Failed to load keybind settings integration.'));
+            document.head.appendChild(script);
+        }).finally(() => {
+            keybindLoading = null;
+        });
+
+        return keybindLoading;
+    }
+
     async function openUserSettings() {
         if (opening) return opening;
         if (document.getElementById(HOST_ID)) return true;
@@ -158,6 +213,16 @@
                 await window.JellyfinQoLUserSettingsPage.initialize(page);
 
                 console.log(LOG, 'Opened DLL-hosted user QoL settings page.');
+
+                // Keybind controls are an enhancement of an already usable
+                // settings page. Load them only after initialization completes,
+                // and never keep Jellyfin's loading overlay open while doing so.
+                setTimeout(() => {
+                    loadKeybindIntegration().catch(error => {
+                        console.error(LOG, 'Keybind settings integration could not be loaded.', error);
+                    });
+                }, 0);
+
                 return true;
             } catch (error) {
                 document.getElementById(HOST_ID)?.remove();
@@ -221,12 +286,13 @@
     QoL.openQoLUserSettings = openUserSettings;
     QoL.closeQoLUserSettings = closeUserSettings;
     QoL.userSettingsBridge = Object.freeze({
-        version:'1.1.0',
+        version:'1.1.1',
         start,
         destroy,
         ensureEntry,
         open:openUserSettings,
-        close:closeUserSettings
+        close:closeUserSettings,
+        loadKeybindIntegration
     });
 
     start();
