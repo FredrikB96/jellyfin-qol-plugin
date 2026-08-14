@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JELLYFIN_CONTAINER: jellyfin
-  JELLYFIN_PLUGIN_DIR: /docker/jellyfin/data/plugins/QoL_Plugin
+  JELLYFIN_CONTAINER: jellyfin-dev
+  JELLYFIN_PLUGIN_DIR: /docker/jellyfin-dev/data/plugins/QoL_Plugin
 
 jobs:
   build:
