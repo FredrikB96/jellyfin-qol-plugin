@@ -1,9 +1,9 @@
-// Jellyfin QoL - Production AirNav Launcher / Client-Local Gate v1.0.1
+// Jellyfin QoL - Production AirNav Launcher / Client-Local Gate v1.0.2
 (function () {
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.0.1';
+    const VERSION = '1.0.2';
     const LEGACY_VERSION = '13.1';
     const LOG = '[JellyfinQoL.Launcher]';
     const ENROLLMENT_KEY = 'jellyfin-qol-airnav-client-v1';
@@ -325,7 +325,7 @@
         const missing = getMissingCoreModules();
         if (missing.length) return { started:false, reason:'modules-not-ready', missing, state:getState() };
 
-        startingPromise = (async () => {
+        const operation = (async () => {
             let deferred = null;
             try {
                 deferred = createDeferredModules();
@@ -366,11 +366,15 @@
                 lastAppliedFingerprint = null;
                 console.error(LOG, 'AirNav runtime start failed; supervisor will retry.', error);
                 return { started:false, reason:'startup-failed', error, state:getState() };
-            } finally {
-                startingPromise = null;
             }
         })();
-        return startingPromise;
+
+        startingPromise = operation;
+        try {
+            return await operation;
+        } finally {
+            if (startingPromise === operation) startingPromise = null;
+        }
     }
 
     function stopCoreRuntime(reason = 'manual') {
