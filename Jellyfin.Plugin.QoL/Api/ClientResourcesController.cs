@@ -89,11 +89,23 @@ public sealed class ClientResourcesController : ControllerBase
 
         if (name.Equals("clientBootstrap.js", StringComparison.OrdinalIgnoreCase))
         {
-            using (stream)
-            using (var reader = new StreamReader(stream))
+            var inputRegistryStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["inputRegistry.js"]);
+            if (inputRegistryStream is null)
             {
-                var bootstrap = reader.ReadToEnd();
-                return Content(bootstrap + RecordInputAutoload, "text/javascript; charset=utf-8");
+                stream.Dispose();
+                return NotFound();
+            }
+
+            using (stream)
+            using (inputRegistryStream)
+            using (var bootstrapReader = new StreamReader(stream))
+            using (var inputRegistryReader = new StreamReader(inputRegistryStream))
+            {
+                var inputRegistry = inputRegistryReader.ReadToEnd();
+                var bootstrap = bootstrapReader.ReadToEnd();
+                return Content(
+                    inputRegistry + "\n" + bootstrap + RecordInputAutoload,
+                    "text/javascript; charset=utf-8");
             }
         }
 
