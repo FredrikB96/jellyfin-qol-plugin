@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.2.1') return;
+    if (QoL.userSettingsBridge?.version === '1.2.2') return;
 
-    const VERSION = '1.2.1';
+    const VERSION = '1.2.2';
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
@@ -19,8 +19,6 @@
     let hiddenSourcePage = null;
     let headerTitleSnapshot = null;
     let keybindLoading = null;
-    let navigationSuspensionCaptured = false;
-    let suspensionBeforeOpen = null;
 
     function setNativeHeaderTitle(title) {
         const element = document.querySelector('.skinHeader .pageTitle, .pageTitle');
@@ -46,56 +44,44 @@
         return ApiClient.getUrl(`JellyfinQoL/Client/${name}`);
     }
 
+    // Compatibility names retained because older settings/keybind code may call
+    // them. Production QoL Settings must stay AirNav-navigable: the settings
+    // page itself is a normal AirNav form surface. Only recorder capture is
+    // allowed to take exclusive input ownership temporarily.
     function suspendNavigationForSettings() {
-        const input = QoL.airNavInput;
-        if (!input?.suspend) return false;
-
-        if (!navigationSuspensionCaptured) {
-            const state = input.getState?.() || {};
-            suspensionBeforeOpen = state.suspended ? (state.suspendReason || 'manual') : null;
-            navigationSuspensionCaptured = true;
-        }
-
-        try {
-            input.suspend('qol-user-settings');
-            return true;
-        } catch (error) {
-            console.warn(LOG, 'Could not suspend AirNav for QoL Settings.', error);
-            return false;
-        }
+        return ensureNavigationSuspended();
     }
 
     function ensureNavigationSuspended() {
-        if (!document.getElementById(HOST_ID)) return false;
         const input = QoL.airNavInput;
-        if (!input?.suspend) return false;
-        const state = input.getState?.() || {};
-        if (state.suspended && state.suspendReason === 'qol-user-settings') return true;
-        try {
-            input.suspend('qol-user-settings');
-            return true;
-        } catch (error) {
-            console.warn(LOG, 'Could not restore QoL Settings input suspension.', error);
-            return false;
+        if (!input?.getState) return false;
+
+        const state = input.getState() || {};
+        if (state.suspended && state.suspendReason === 'qol-user-settings') {
+            try {
+                input.resume?.();
+                console.log(LOG, 'Cleared legacy QoL Settings AirNav suspension.');
+            } catch (error) {
+                console.warn(LOG, 'Could not clear legacy QoL Settings suspension.', error);
+                return false;
+            }
         }
+
+        const next = input.getState?.() || {};
+        return next.suspended !== true;
     }
 
     function restoreNavigationSuspension() {
-        if (!navigationSuspensionCaptured) return true;
         const input = QoL.airNavInput;
-        const previousReason = suspensionBeforeOpen;
-        navigationSuspensionCaptured = false;
-        suspensionBeforeOpen = null;
-
-        if (!input) return true;
-        try {
-            if (input.getState?.().suspended) input.resume?.();
-            if (previousReason) input.suspend?.(previousReason);
-            return true;
-        } catch (error) {
-            console.warn(LOG, 'Could not restore previous AirNav suspension state.', error);
-            return false;
+        const state = input?.getState?.() || {};
+        if (state.suspended && state.suspendReason === 'qol-user-settings') {
+            try { input.resume?.(); }
+            catch (error) {
+                console.warn(LOG, 'Could not clear QoL Settings suspension on close.', error);
+                return false;
+            }
         }
+        return true;
     }
 
     function scheduleEnsureEntry() {
@@ -344,7 +330,7 @@
                     });
                 }, 0);
 
-                console.log(LOG, 'Opened DLL-hosted QoL settings with native-input ownership.');
+                console.log(LOG, 'Opened DLL-hosted QoL settings with AirNav navigation active.');
                 return true;
             } catch (error) {
                 document.getElementById(HOST_ID)?.remove();
