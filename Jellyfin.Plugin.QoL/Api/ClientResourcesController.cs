@@ -30,6 +30,7 @@ public sealed class ClientResourcesController : ControllerBase
             ["gestureResolverDirectionalPolicy.js"] = "Jellyfin.Plugin.QoL.Web.gestureResolverDirectionalPolicy.js",
             ["universalInput.js"] = "Jellyfin.Plugin.QoL.Web.universalInput.js",
             ["controlBridge.js"] = "Jellyfin.Plugin.QoL.Web.controlBridge.js",
+            ["guardManager.js"] = "Jellyfin.Plugin.QoL.Web.guardManager.js",
             ["launcherRuntime.js"] = "Jellyfin.Plugin.QoL.Web.launcherRuntime.js"
         };
 
@@ -100,8 +101,9 @@ public sealed class ClientResourcesController : ControllerBase
             var directionalPolicyStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolverDirectionalPolicy.js"]);
             var universalInputStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["universalInput.js"]);
             var controlBridgeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["controlBridge.js"]);
+            var guardManagerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["guardManager.js"]);
             var launcherRuntimeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["launcherRuntime.js"]);
-            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || launcherRuntimeStream is null)
+            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || guardManagerStream is null || launcherRuntimeStream is null)
             {
                 stream.Dispose();
                 inputRegistryStream?.Dispose();
@@ -109,6 +111,7 @@ public sealed class ClientResourcesController : ControllerBase
                 directionalPolicyStream?.Dispose();
                 universalInputStream?.Dispose();
                 controlBridgeStream?.Dispose();
+                guardManagerStream?.Dispose();
                 launcherRuntimeStream?.Dispose();
                 return NotFound();
             }
@@ -119,6 +122,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (directionalPolicyStream)
             using (universalInputStream)
             using (controlBridgeStream)
+            using (guardManagerStream)
             using (launcherRuntimeStream)
             using (var bootstrapReader = new StreamReader(stream))
             using (var inputRegistryReader = new StreamReader(inputRegistryStream))
@@ -126,6 +130,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (var directionalPolicyReader = new StreamReader(directionalPolicyStream))
             using (var universalInputReader = new StreamReader(universalInputStream))
             using (var controlBridgeReader = new StreamReader(controlBridgeStream))
+            using (var guardManagerReader = new StreamReader(guardManagerStream))
             using (var launcherRuntimeReader = new StreamReader(launcherRuntimeStream))
             {
                 var inputRegistry = inputRegistryReader.ReadToEnd();
@@ -133,6 +138,7 @@ public sealed class ClientResourcesController : ControllerBase
                 var directionalPolicy = directionalPolicyReader.ReadToEnd();
                 var universalInput = universalInputReader.ReadToEnd();
                 var controlBridge = controlBridgeReader.ReadToEnd();
+                var guardManager = guardManagerReader.ReadToEnd();
                 var bootstrap = bootstrapReader.ReadToEnd();
                 var launcherRuntime = launcherRuntimeReader.ReadToEnd();
                 return Content(
@@ -141,6 +147,7 @@ public sealed class ClientResourcesController : ControllerBase
                     directionalPolicy + "\n" +
                     universalInput + "\n" +
                     controlBridge + "\n" +
+                    guardManager + "\n" +
                     bootstrap + "\n" +
                     launcherRuntime + RecordInputAutoload,
                     "text/javascript; charset=utf-8");
