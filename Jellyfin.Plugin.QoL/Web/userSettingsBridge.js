@@ -2,7 +2,7 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.1.1') return;
+    if (QoL.userSettingsBridge?.version === '1.1.2') return;
 
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
@@ -128,6 +128,49 @@
         });
     }
 
+    function installSafeDynamicGridInputs(page) {
+        const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+        if (!descriptor?.get || !descriptor?.set) {
+            console.warn(LOG, 'Could not install dynamic settings input compatibility shim: innerHTML descriptor unavailable.');
+            return false;
+        }
+
+        let installed = 0;
+        for (const id of ['qolUserBindings', 'qolUserProtectedInputs']) {
+            const host = page?.querySelector(`#${id}`);
+            if (!host || host.dataset.qolSafeDynamicInputs === 'true') continue;
+
+            Object.defineProperty(host, 'innerHTML', {
+                configurable: true,
+                enumerable: descriptor.enumerable,
+                get() {
+                    return descriptor.get.call(this);
+                },
+                set(value) {
+                    let next = value;
+                    if (typeof next === 'string') {
+                        // Jellyfin's customized emby-input element assumes a
+                        // labelled inputContainer and can throw from its legacy
+                        // attachedCallback when used inside table/grid cells.
+                        // These dynamic controls only need Jellyfin styling, so
+                        // keep them as normal HTML inputs with the emby-input CSS
+                        // class instead of upgrading them as Web Components.
+                        next = next.replace(/\sis=(['"])emby-input\1/gi, ' class="emby-input"');
+                    }
+                    descriptor.set.call(this, next);
+                }
+            });
+
+            host.dataset.qolSafeDynamicInputs = 'true';
+            installed += 1;
+        }
+
+        if (installed) {
+            console.log(LOG, 'Installed safe dynamic-input rendering for QoL settings grids.', { installed });
+        }
+        return installed > 0;
+    }
+
     function loadKeybindIntegration() {
         const existingRuntime = window.JellyfinQoL?.userSettingsKeybindIntegration;
         if (existingRuntime) {
@@ -210,6 +253,7 @@
 
                 await loadScript();
                 const page = host.querySelector('#JellyfinQoLUserSettingsPage');
+                installSafeDynamicGridInputs(page);
                 await window.JellyfinQoLUserSettingsPage.initialize(page);
 
                 console.log(LOG, 'Opened DLL-hosted user QoL settings page.');
@@ -286,13 +330,14 @@
     QoL.openQoLUserSettings = openUserSettings;
     QoL.closeQoLUserSettings = closeUserSettings;
     QoL.userSettingsBridge = Object.freeze({
-        version:'1.1.1',
+        version:'1.1.2',
         start,
         destroy,
         ensureEntry,
         open:openUserSettings,
         close:closeUserSettings,
-        loadKeybindIntegration
+        loadKeybindIntegration,
+        installSafeDynamicGridInputs
     });
 
     start();
