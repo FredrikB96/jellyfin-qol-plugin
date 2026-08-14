@@ -26,6 +26,7 @@ public sealed class ClientResourcesController : ControllerBase
             ["recordInput.js"] = "Jellyfin.Plugin.QoL.Web.recordInput.js",
             ["inputRegistry.js"] = "Jellyfin.Plugin.QoL.Web.inputRegistry.js",
             ["gestureResolver.js"] = "Jellyfin.Plugin.QoL.Web.gestureResolver.js",
+            ["gestureResolverDirectionalPolicy.js"] = "Jellyfin.Plugin.QoL.Web.gestureResolverDirectionalPolicy.js",
             ["universalInput.js"] = "Jellyfin.Plugin.QoL.Web.universalInput.js"
         };
 
@@ -93,12 +94,14 @@ public sealed class ClientResourcesController : ControllerBase
         {
             var inputRegistryStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["inputRegistry.js"]);
             var gestureResolverStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolver.js"]);
+            var directionalPolicyStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolverDirectionalPolicy.js"]);
             var universalInputStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["universalInput.js"]);
-            if (inputRegistryStream is null || gestureResolverStream is null || universalInputStream is null)
+            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null)
             {
                 stream.Dispose();
                 inputRegistryStream?.Dispose();
                 gestureResolverStream?.Dispose();
+                directionalPolicyStream?.Dispose();
                 universalInputStream?.Dispose();
                 return NotFound();
             }
@@ -106,19 +109,23 @@ public sealed class ClientResourcesController : ControllerBase
             using (stream)
             using (inputRegistryStream)
             using (gestureResolverStream)
+            using (directionalPolicyStream)
             using (universalInputStream)
             using (var bootstrapReader = new StreamReader(stream))
             using (var inputRegistryReader = new StreamReader(inputRegistryStream))
             using (var gestureResolverReader = new StreamReader(gestureResolverStream))
+            using (var directionalPolicyReader = new StreamReader(directionalPolicyStream))
             using (var universalInputReader = new StreamReader(universalInputStream))
             {
                 var inputRegistry = inputRegistryReader.ReadToEnd();
                 var gestureResolver = gestureResolverReader.ReadToEnd();
+                var directionalPolicy = directionalPolicyReader.ReadToEnd();
                 var universalInput = universalInputReader.ReadToEnd();
                 var bootstrap = bootstrapReader.ReadToEnd();
                 return Content(
                     inputRegistry + "\n" +
                     gestureResolver + "\n" +
+                    directionalPolicy + "\n" +
                     universalInput + "\n" +
                     bootstrap + RecordInputAutoload,
                     "text/javascript; charset=utf-8");
