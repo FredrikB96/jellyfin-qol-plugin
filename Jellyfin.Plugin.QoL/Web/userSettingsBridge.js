@@ -2,7 +2,7 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.1.2') return;
+    if (QoL.userSettingsBridge?.version === '1.1.3') return;
 
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
@@ -128,10 +128,49 @@
         });
     }
 
+    function sanitizeQoLMarkup(value) {
+        if (typeof value !== 'string') return value;
+
+        // The QoL user page is mounted manually rather than through Jellyfin's
+        // normal page router. Jellyfin's legacy customized built-in elements
+        // (is="emby-*") assume router-created sibling/internal DOM during their
+        // attachedCallback lifecycle and can throw when those assumptions do
+        // not hold. Preserve the visual classes but never ask WebComponents.js
+        // to upgrade controls inside this injected page.
+        return value.replace(
+            /\s+is=(['"])emby-(input|select|checkbox|button|linkbutton)\1/gi,
+            (_match, _quote, kind) => ` data-qol-emby-style="${String(kind).toLowerCase()}"`
+        );
+    }
+
+    function applyQoLControlClasses(scope) {
+        if (!scope?.querySelectorAll) return 0;
+        let applied = 0;
+
+        scope.querySelectorAll('[data-qol-emby-style]').forEach(element => {
+            const kind = String(element.dataset.qolEmbyStyle || '').toLowerCase();
+
+            if (kind === 'input') {
+                element.classList.add('emby-input');
+            } else if (kind === 'select') {
+                element.classList.add('emby-select', 'emby-select-withcolor');
+            } else if (kind === 'checkbox') {
+                element.classList.add('emby-checkbox');
+            } else if (kind === 'button' || kind === 'linkbutton') {
+                element.classList.add('emby-button');
+            }
+
+            element.removeAttribute('data-qol-emby-style');
+            applied += 1;
+        });
+
+        return applied;
+    }
+
     function installSafeDynamicGridInputs(page) {
         const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
         if (!descriptor?.get || !descriptor?.set) {
-            console.warn(LOG, 'Could not install dynamic settings input compatibility shim: innerHTML descriptor unavailable.');
+            console.warn(LOG, 'Could not install dynamic settings control compatibility shim: innerHTML descriptor unavailable.');
             return false;
         }
 
@@ -147,17 +186,8 @@
                     return descriptor.get.call(this);
                 },
                 set(value) {
-                    let next = value;
-                    if (typeof next === 'string') {
-                        // Jellyfin's customized emby-input element assumes a
-                        // labelled inputContainer and can throw from its legacy
-                        // attachedCallback when used inside table/grid cells.
-                        // These dynamic controls only need Jellyfin styling, so
-                        // keep them as normal HTML inputs with the emby-input CSS
-                        // class instead of upgrading them as Web Components.
-                        next = next.replace(/\sis=(['"])emby-input\1/gi, ' class="emby-input"');
-                    }
-                    descriptor.set.call(this, next);
+                    descriptor.set.call(this, sanitizeQoLMarkup(value));
+                    applyQoLControlClasses(this);
                 }
             });
 
@@ -166,7 +196,7 @@
         }
 
         if (installed) {
-            console.log(LOG, 'Installed safe dynamic-input rendering for QoL settings grids.', { installed });
+            console.log(LOG, 'Installed safe dynamic-control rendering for QoL settings grids.', { installed });
         }
         return installed > 0;
     }
@@ -236,7 +266,8 @@
 
                 const host = document.createElement('div');
                 host.id = HOST_ID;
-                host.innerHTML = html;
+                host.innerHTML = sanitizeQoLMarkup(html);
+                applyQoLControlClasses(host);
 
                 // Behave like a normal Jellyfin preference page rather than a
                 // modal overlay: hide the Settings menu page and mount the QoL
@@ -255,8 +286,9 @@
                 const page = host.querySelector('#JellyfinQoLUserSettingsPage');
                 installSafeDynamicGridInputs(page);
                 await window.JellyfinQoLUserSettingsPage.initialize(page);
+                applyQoLControlClasses(page);
 
-                console.log(LOG, 'Opened DLL-hosted user QoL settings page.');
+                console.log(LOG, 'Opened DLL-hosted user QoL settings page without legacy Web Component upgrades.');
 
                 // Keybind controls are an enhancement of an already usable
                 // settings page. Load them only after initialization completes,
@@ -330,14 +362,16 @@
     QoL.openQoLUserSettings = openUserSettings;
     QoL.closeQoLUserSettings = closeUserSettings;
     QoL.userSettingsBridge = Object.freeze({
-        version:'1.1.2',
+        version:'1.1.3',
         start,
         destroy,
         ensureEntry,
         open:openUserSettings,
         close:closeUserSettings,
         loadKeybindIntegration,
-        installSafeDynamicGridInputs
+        installSafeDynamicGridInputs,
+        sanitizeQoLMarkup,
+        applyQoLControlClasses
     });
 
     start();
