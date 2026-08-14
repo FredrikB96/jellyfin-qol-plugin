@@ -2,8 +2,8 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.0.0';
-    const RESOLVER_VERSION = '1.1.0';
+    const VERSION = '1.1.0';
+    const RESOLVER_VERSION = '1.1.1';
     const LOG = '[JellyfinQoL.GestureResolverDirectionalPolicy]';
     const DIRECTIONS = Object.freeze(['UP', 'DOWN', 'LEFT', 'RIGHT']);
     const DIRECTION_SET = new Set(DIRECTIONS);
@@ -20,6 +20,11 @@
         if (value == null) return value;
         try { return JSON.parse(JSON.stringify(value)); }
         catch (_) { return value; }
+    }
+
+    function nowMs() {
+        try { return performance.now(); }
+        catch (_) { return Date.now(); }
     }
 
     function isDirection(binding) {
@@ -144,22 +149,44 @@
                 )
                 : timings.repeatIntervalMs;
 
-            const dispatched = this.dispatchResolved(
+            const repeatMeta = {
+                repeatIndex: state.repeatCount,
+                repeatIntervalMs: interval,
+                heldMs: Math.max(0, nowMs() - state.pressAt),
+                directionalNavigation: true,
+                syntheticDirectionalTap: true
+            };
+
+            // Directional hold is intentionally emitted as another complete
+            // canonical tap instead of as a special `repeat` phase. This makes
+            // a held direction behave exactly like rapidly tapping the same
+            // bound physical button, across page navigation, modals, forms,
+            // native/player controls, and future input devices.
+            const pressed = this.dispatchResolved(
                 state.activeBinding,
-                'repeat',
+                'press',
                 state.input,
                 'repeat',
                 {
-                    repeatIndex: state.repeatCount,
-                    repeatIntervalMs: interval,
-                    heldMs: Math.max(0, performance.now() - state.pressAt),
-                    directionalNavigation: true
+                    ...repeatMeta,
+                    syntheticDirectionalTapPhase: 'press'
                 }
             );
 
-            state.downstreamHandled = state.downstreamHandled || !!dispatched.result?.handled;
+            this.dispatchResolved(
+                state.activeBinding,
+                'release',
+                state.input,
+                'repeat',
+                {
+                    ...repeatMeta,
+                    syntheticDirectionalTapPhase: 'release'
+                }
+            );
 
-            if (!directionalProgress(dispatched.result)) {
+            state.downstreamHandled = state.downstreamHandled || !!pressed.result?.handled;
+
+            if (!directionalProgress(pressed.result)) {
                 state.repeatTimer = null;
                 state.repeatStoppedAtBoundary = true;
 
@@ -169,7 +196,7 @@
                         action: state.activeBinding.action,
                         reason: 'directional-boundary',
                         repeatIndex: state.repeatCount,
-                        downstream: clone(dispatched.result)
+                        downstream: clone(pressed.result)
                     });
                 } catch (_) {}
 
@@ -211,7 +238,8 @@
                     actions: DIRECTIONS.slice(),
                     tap: 'one-step',
                     doubleTap: 'two-independent-steps',
-                    hold: 'repeat-until-release-or-boundary',
+                    hold: 'repeat-tap-cycles-until-release-or-boundary',
+                    repeatEmission: 'canonical-press-release',
                     longGestureAllowed: false,
                     doubleGestureAllowed: false,
                     storedGestureIgnoredForDirections: true
@@ -229,7 +257,8 @@
         semantics: Object.freeze({
             tap: 'one-step',
             doubleTap: 'two-independent-steps',
-            hold: 'repeat-until-release-or-boundary'
+            hold: 'repeat-tap-cycles-until-release-or-boundary',
+            repeatEmission: 'canonical-press-release'
         }),
         directionalProgress
     });
