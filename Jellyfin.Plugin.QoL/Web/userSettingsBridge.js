@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.2.2') return;
+    if (QoL.userSettingsBridge?.version === '1.2.3') return;
 
-    const VERSION = '1.2.2';
+    const VERSION = '1.2.3';
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
@@ -19,6 +19,7 @@
     let hiddenSourcePage = null;
     let headerTitleSnapshot = null;
     let keybindLoading = null;
+    let scannerFormOverride = null;
 
     function setNativeHeaderTitle(title) {
         const element = document.querySelector('.skinHeader .pageTitle, .pageTitle');
@@ -81,6 +82,68 @@
                 return false;
             }
         }
+        return true;
+    }
+
+    function enableQoLScannerFormSurface(reason = 'open') {
+        const scannerApi = QoL.airScanner;
+        if (!scannerApi?.create) return false;
+
+        let scanner = null;
+        try {
+            scanner = scannerApi.create();
+        } catch (error) {
+            console.warn(LOG, 'Could not access AirNav Scanner for QoL form integration.', error);
+            return false;
+        }
+
+        if (!scanner?.cfg) return false;
+
+        if (!scannerFormOverride) {
+            scannerFormOverride = {
+                instance: scanner,
+                pageFormRoutePattern: scanner.cfg.pageFormRoutePattern
+            };
+        }
+
+        // QoL Settings is mounted over #/mypreferencesmenu without changing the
+        // Jellyfin route. Scanner normally excludes that menu route from form
+        // discovery. While this DLL-hosted page is visible, treat the same route
+        // as a form surface so select/checkbox/range/number controls become
+        // NavigationItems alongside action buttons.
+        scanner.cfg.pageFormRoutePattern = /^#\/mypreferences/i;
+
+        try {
+            scannerApi.scan?.(`qol-settings-form:${reason}`);
+        } catch (error) {
+            console.warn(LOG, 'Could not rescan QoL Settings as an AirNav form.', error);
+        }
+
+        try {
+            QoL.airFocus?.refresh?.(`qol-settings-form:${reason}`);
+        } catch (_) {}
+
+        return true;
+    }
+
+    function restoreQoLScannerFormSurface(reason = 'close') {
+        const saved = scannerFormOverride;
+        scannerFormOverride = null;
+
+        if (!saved?.instance?.cfg) return false;
+
+        saved.instance.cfg.pageFormRoutePattern = saved.pageFormRoutePattern;
+
+        try {
+            QoL.airScanner?.scan?.(`qol-settings-form-restore:${reason}`);
+        } catch (error) {
+            console.warn(LOG, 'Could not restore Scanner after QoL Settings closed.', error);
+        }
+
+        try {
+            QoL.airFocus?.refresh?.(`qol-settings-form-restore:${reason}`);
+        } catch (_) {}
+
         return true;
     }
 
@@ -278,6 +341,7 @@
                 const runtime = QoL.userSettingsKeybindIntegration;
                 if (!runtime) return reject(new Error('Keybind settings integration loaded without registering runtime.'));
                 runtime.decorateDirectionalRows?.();
+                enableQoLScannerFormSurface('keybind-integration-ready');
                 resolve(runtime);
             };
             script.onerror = () => reject(new Error('Failed to load keybind settings integration.'));
@@ -290,6 +354,7 @@
         if (opening) return opening;
         if (document.getElementById(HOST_ID)) {
             ensureNavigationSuspended();
+            enableQoLScannerFormSurface('already-open');
             return true;
         }
 
@@ -323,6 +388,7 @@
                 await window.JellyfinQoLUserSettingsPage.initialize(page);
                 applyQoLControlClasses(page);
                 ensureNavigationSuspended();
+                enableQoLScannerFormSurface('page-initialized');
 
                 setTimeout(() => {
                     loadKeybindIntegration().catch(error => {
@@ -330,7 +396,7 @@
                     });
                 }, 0);
 
-                console.log(LOG, 'Opened DLL-hosted QoL settings with AirNav navigation active.');
+                console.log(LOG, 'Opened DLL-hosted QoL settings as an AirNav form surface.');
                 return true;
             } catch (error) {
                 document.getElementById(HOST_ID)?.remove();
@@ -339,6 +405,7 @@
                     hiddenSourcePage.removeAttribute('aria-hidden');
                 }
                 hiddenSourcePage = null;
+                restoreQoLScannerFormSurface('open-failed');
                 restoreNativeHeaderTitle();
                 restoreNavigationSuspension();
                 throw error;
@@ -364,6 +431,7 @@
             headerTitleSnapshot = null;
         }
         hiddenSourcePage = null;
+        restoreQoLScannerFormSurface('page-closed');
         restoreNavigationSuspension();
         return true;
     }
@@ -389,6 +457,7 @@
         observer = null;
         window.removeEventListener('hashchange', handleHashChange);
         closeUserSettings();
+        restoreQoLScannerFormSurface('bridge-destroy');
         document.getElementById(ENTRY_ID)?.remove();
     }
 
@@ -405,6 +474,8 @@
         ensureNavigationSuspended,
         suspendNavigationForSettings,
         restoreNavigationSuspension,
+        enableQoLScannerFormSurface,
+        restoreQoLScannerFormSurface,
         sanitizeQoLMarkup,
         applyQoLControlClasses,
         installSafeDynamicControls,
