@@ -916,6 +916,7 @@
     }
 
     let api = null;
+    let factoryRegistered = false;
 
     function currentOwnership() {
         const owner = QoL.airNavUniversalInput || null;
@@ -928,10 +929,14 @@
     }
 
     function registerProductionFactory() {
+        if (factoryRegistered) {
+            return { registered: true, reason: 'production-factory-already-registered' };
+        }
         if (!QoL.airNavInput?.registerAdapter) {
             return { registered: false, reason: 'input-registry-not-ready' };
         }
         QoL.airNavInput.registerAdapter('universal', options => new UniversalInputAdapter(options));
+        factoryRegistered = true;
         return { registered: true, reason: 'production-factory-registered' };
     }
 
@@ -949,6 +954,7 @@
                 reason: current === api ? 'already-production-owner' : 'production-owner-claimed'
             };
         }
+        factoryRegistered = false;
         return {
             takeoverActive: false,
             passiveComparisonMode: true,
