@@ -2,12 +2,13 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.2.0') return;
+    if (QoL.userSettingsBridge?.version === '1.2.1') return;
 
-    const VERSION = '1.2.0';
+    const VERSION = '1.2.1';
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
+    const STYLE_ID = 'jellyfinQoLUserSettingsNativeControlStyles';
     const PAGE_RESOURCE = 'JellyfinQoLUserSettingsPage';
     const SCRIPT_RESOURCE = 'JellyfinQoLUserSettingsPage.js';
     const KEYBIND_RESOURCE = 'userSettingsKeybindIntegration.js';
@@ -170,6 +171,53 @@
         });
     }
 
+    function ensureNativeControlStyles() {
+        if (document.getElementById(STYLE_ID)) return true;
+
+        const style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = `
+            #JellyfinQoLUserSettingsPage .checkboxContainer {
+                display:flex;
+                align-items:center;
+                gap:.7em;
+                cursor:pointer;
+            }
+
+            #JellyfinQoLUserSettingsPage input.qol-native-checkbox {
+                -webkit-appearance:checkbox !important;
+                appearance:auto !important;
+                display:inline-block !important;
+                position:static !important;
+                width:1.25em !important;
+                height:1.25em !important;
+                min-width:1.25em !important;
+                margin:0 !important;
+                padding:0 !important;
+                opacity:1 !important;
+                visibility:visible !important;
+                clip:auto !important;
+                clip-path:none !important;
+                pointer-events:auto !important;
+                vertical-align:middle;
+                cursor:pointer;
+                accent-color:var(--theme-primary-color, #00a4dc);
+            }
+
+            #JellyfinQoLUserSettingsPage input.qol-native-checkbox:focus-visible {
+                outline:2px solid currentColor;
+                outline-offset:2px;
+            }
+
+            #JellyfinQoLUserSettingsPage input.qol-native-checkbox:disabled {
+                cursor:default;
+                opacity:.55 !important;
+            }
+        `;
+        document.head.appendChild(style);
+        return true;
+    }
+
     function sanitizeQoLMarkup(value) {
         if (typeof value !== 'string') return value;
         return value.replace(
@@ -180,12 +228,17 @@
 
     function applyQoLControlClasses(scope) {
         if (!scope?.querySelectorAll) return 0;
+        ensureNativeControlStyles();
+
         let applied = 0;
         scope.querySelectorAll('[data-qol-emby-style]').forEach(element => {
             const kind = String(element.dataset.qolEmbyStyle || '').toLowerCase();
             if (kind === 'input') element.classList.add('emby-input');
             else if (kind === 'select') element.classList.add('emby-select', 'emby-select-withcolor');
-            else if (kind === 'checkbox') element.classList.add('emby-checkbox');
+            else if (kind === 'checkbox') {
+                element.classList.remove('emby-checkbox');
+                element.classList.add('qol-native-checkbox');
+            }
             else if (kind === 'button' || kind === 'linkbutton') element.classList.add('emby-button');
             element.removeAttribute('data-qol-emby-style');
             applied += 1;
@@ -368,7 +421,8 @@
         restoreNavigationSuspension,
         sanitizeQoLMarkup,
         applyQoLControlClasses,
-        installSafeDynamicControls
+        installSafeDynamicControls,
+        ensureNativeControlStyles
     });
 
     start();
