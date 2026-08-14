@@ -21,7 +21,8 @@ public sealed class ClientResourcesController : ControllerBase
         {
             ["clientBootstrap.js"] = "Jellyfin.Plugin.QoL.Web.clientBootstrap.js",
             ["runtimeSettings.js"] = "Jellyfin.Plugin.QoL.Web.runtimeSettings.js",
-            ["userSettingsBridge.js"] = "Jellyfin.Plugin.QoL.Web.userSettingsBridge.js"
+            ["userSettingsBridge.js"] = "Jellyfin.Plugin.QoL.Web.userSettingsBridge.js",
+            ["recordInput.js"] = "Jellyfin.Plugin.QoL.Web.recordInput.js"
         };
 
     /// <summary>Returns an embedded client JavaScript module by allow-listed name.</summary>
