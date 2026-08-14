@@ -2,8 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.1.3') return;
+    if (QoL.userSettingsBridge?.version === '1.2.0') return;
 
+    const VERSION = '1.2.0';
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
@@ -17,18 +18,13 @@
     let hiddenSourcePage = null;
     let headerTitleSnapshot = null;
     let keybindLoading = null;
+    let navigationSuspensionCaptured = false;
+    let suspensionBeforeOpen = null;
 
     function setNativeHeaderTitle(title) {
         const element = document.querySelector('.skinHeader .pageTitle, .pageTitle');
         if (!element) return false;
-
-        if (!headerTitleSnapshot) {
-            headerTitleSnapshot = {
-                element,
-                html: element.innerHTML
-            };
-        }
-
+        if (!headerTitleSnapshot) headerTitleSnapshot = { element, html:element.innerHTML };
         element.textContent = String(title || 'QoL Settings');
         return true;
     }
@@ -49,13 +45,65 @@
         return ApiClient.getUrl(`JellyfinQoL/Client/${name}`);
     }
 
+    function suspendNavigationForSettings() {
+        const input = QoL.airNavInput;
+        if (!input?.suspend) return false;
+
+        if (!navigationSuspensionCaptured) {
+            const state = input.getState?.() || {};
+            suspensionBeforeOpen = state.suspended ? (state.suspendReason || 'manual') : null;
+            navigationSuspensionCaptured = true;
+        }
+
+        try {
+            input.suspend('qol-user-settings');
+            return true;
+        } catch (error) {
+            console.warn(LOG, 'Could not suspend AirNav for QoL Settings.', error);
+            return false;
+        }
+    }
+
+    function ensureNavigationSuspended() {
+        if (!document.getElementById(HOST_ID)) return false;
+        const input = QoL.airNavInput;
+        if (!input?.suspend) return false;
+        const state = input.getState?.() || {};
+        if (state.suspended && state.suspendReason === 'qol-user-settings') return true;
+        try {
+            input.suspend('qol-user-settings');
+            return true;
+        } catch (error) {
+            console.warn(LOG, 'Could not restore QoL Settings input suspension.', error);
+            return false;
+        }
+    }
+
+    function restoreNavigationSuspension() {
+        if (!navigationSuspensionCaptured) return true;
+        const input = QoL.airNavInput;
+        const previousReason = suspensionBeforeOpen;
+        navigationSuspensionCaptured = false;
+        suspensionBeforeOpen = null;
+
+        if (!input) return true;
+        try {
+            if (input.getState?.().suspended) input.resume?.();
+            if (previousReason) input.suspend?.(previousReason);
+            return true;
+        } catch (error) {
+            console.warn(LOG, 'Could not restore previous AirNav suspension state.', error);
+            return false;
+        }
+    }
+
     function scheduleEnsureEntry() {
         if (scheduled) return;
         scheduled = true;
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             scheduled = false;
             ensureEntry();
-        }, 50);
+        });
     }
 
     function ensureEntry() {
@@ -64,7 +112,6 @@
 
         const page = document.querySelector('#myPreferencesMenuPage.page:not(.hide), #myPreferencesMenuPage');
         if (!page) return false;
-
         const section = page.querySelector('.verticalSection');
         if (!section) return false;
 
@@ -80,9 +127,7 @@
         entry.innerHTML = `
             <div class="listItem">
                 <span class="material-icons listItemIcon listItemIcon-transparent tune" aria-hidden="true"></span>
-                <div class="listItemBody">
-                    <div class="listItemBodyText">QoL Settings</div>
-                </div>
+                <div class="listItemBody"><div class="listItemBodyText">QoL Settings</div></div>
             </div>`;
 
         entry.addEventListener('click', event => {
@@ -94,14 +139,11 @@
         const enhanced = section.querySelector('#jellyfinEnhancedUserPrefsLink');
         if (enhanced?.nextSibling) enhanced.parentNode.insertBefore(entry, enhanced.nextSibling);
         else section.appendChild(entry);
-
-        console.log(LOG, 'Added Profile → Settings → QoL Settings entry.');
         return true;
     }
 
     function loadScript() {
         if (window.JellyfinQoLUserSettingsPage?.initialize) return Promise.resolve();
-
         return new Promise((resolve, reject) => {
             const existing = document.querySelector('script[data-jellyfin-qol-user-settings-page]');
             if (existing) {
@@ -130,13 +172,6 @@
 
     function sanitizeQoLMarkup(value) {
         if (typeof value !== 'string') return value;
-
-        // The QoL user page is mounted manually rather than through Jellyfin's
-        // normal page router. Jellyfin's legacy customized built-in elements
-        // (is="emby-*") assume router-created sibling/internal DOM during their
-        // attachedCallback lifecycle and can throw when those assumptions do
-        // not hold. Preserve the visual classes but never ask WebComponents.js
-        // to upgrade controls inside this injected page.
         return value.replace(
             /\s+is=(['"])emby-(input|select|checkbox|button|linkbutton)\1/gi,
             (_match, _quote, kind) => ` data-qol-emby-style="${String(kind).toLowerCase()}"`
@@ -146,114 +181,80 @@
     function applyQoLControlClasses(scope) {
         if (!scope?.querySelectorAll) return 0;
         let applied = 0;
-
         scope.querySelectorAll('[data-qol-emby-style]').forEach(element => {
             const kind = String(element.dataset.qolEmbyStyle || '').toLowerCase();
-
-            if (kind === 'input') {
-                element.classList.add('emby-input');
-            } else if (kind === 'select') {
-                element.classList.add('emby-select', 'emby-select-withcolor');
-            } else if (kind === 'checkbox') {
-                element.classList.add('emby-checkbox');
-            } else if (kind === 'button' || kind === 'linkbutton') {
-                element.classList.add('emby-button');
-            }
-
+            if (kind === 'input') element.classList.add('emby-input');
+            else if (kind === 'select') element.classList.add('emby-select', 'emby-select-withcolor');
+            else if (kind === 'checkbox') element.classList.add('emby-checkbox');
+            else if (kind === 'button' || kind === 'linkbutton') element.classList.add('emby-button');
             element.removeAttribute('data-qol-emby-style');
             applied += 1;
         });
-
         return applied;
     }
 
-    function installSafeDynamicGridInputs(page) {
+    function installSafeDynamicControls(page) {
         const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-        if (!descriptor?.get || !descriptor?.set) {
-            console.warn(LOG, 'Could not install dynamic settings control compatibility shim: innerHTML descriptor unavailable.');
-            return false;
-        }
+        if (!descriptor?.get || !descriptor?.set) return false;
 
         let installed = 0;
         for (const id of ['qolUserBindings', 'qolUserProtectedInputs']) {
             const host = page?.querySelector(`#${id}`);
-            if (!host || host.dataset.qolSafeDynamicInputs === 'true') continue;
-
+            if (!host || host.dataset.qolSafeDynamicControls === 'true') continue;
             Object.defineProperty(host, 'innerHTML', {
                 configurable: true,
                 enumerable: descriptor.enumerable,
-                get() {
-                    return descriptor.get.call(this);
-                },
+                get() { return descriptor.get.call(this); },
                 set(value) {
                     descriptor.set.call(this, sanitizeQoLMarkup(value));
                     applyQoLControlClasses(this);
                 }
             });
-
-            host.dataset.qolSafeDynamicInputs = 'true';
+            host.dataset.qolSafeDynamicControls = 'true';
             installed += 1;
-        }
-
-        if (installed) {
-            console.log(LOG, 'Installed safe dynamic-control rendering for QoL settings grids.', { installed });
         }
         return installed > 0;
     }
 
     function loadKeybindIntegration() {
-        const existingRuntime = window.JellyfinQoL?.userSettingsKeybindIntegration;
-        if (existingRuntime) {
-            try { existingRuntime.decorateDirectionalRows?.(); } catch (_) {}
+        const existingRuntime = QoL.userSettingsKeybindIntegration;
+        if (existingRuntime?.version === '1.1.0') {
+            existingRuntime.decorateDirectionalRows?.();
             return Promise.resolve(existingRuntime);
         }
 
+        if (existingRuntime) {
+            try { existingRuntime.destroy?.(); } catch (_) {}
+            try { delete QoL.userSettingsKeybindIntegration; } catch (_) {}
+        }
+
         if (keybindLoading) return keybindLoading;
-
         keybindLoading = new Promise((resolve, reject) => {
-            const existingScript = document.querySelector('script[data-jellyfin-qol-keybind-settings]');
-            if (existingScript) {
-                const started = Date.now();
-                const timer = setInterval(() => {
-                    const runtime = window.JellyfinQoL?.userSettingsKeybindIntegration;
-                    if (runtime) {
-                        clearInterval(timer);
-                        resolve(runtime);
-                    } else if (Date.now() - started > 5000) {
-                        clearInterval(timer);
-                        reject(new Error('Timed out waiting for keybind settings integration.'));
-                    }
-                }, 50);
-                return;
-            }
-
+            document.querySelectorAll('script[data-jellyfin-qol-keybind-settings]').forEach(script => script.remove());
             const script = document.createElement('script');
             script.async = true;
             script.dataset.jellyfinQolKeybindSettings = 'true';
-            script.src = clientResourceUrl(KEYBIND_RESOURCE) +
-                `?qolkeybind=${encodeURIComponent(Date.now().toString())}`;
+            script.src = clientResourceUrl(KEYBIND_RESOURCE) + `?qolkeybind=${encodeURIComponent(Date.now().toString())}`;
             script.onload = () => {
-                const runtime = window.JellyfinQoL?.userSettingsKeybindIntegration;
-                if (!runtime) {
-                    reject(new Error('Keybind settings integration loaded without registering runtime.'));
-                    return;
-                }
-                try { runtime.decorateDirectionalRows?.(); } catch (_) {}
+                const runtime = QoL.userSettingsKeybindIntegration;
+                if (!runtime) return reject(new Error('Keybind settings integration loaded without registering runtime.'));
+                runtime.decorateDirectionalRows?.();
                 resolve(runtime);
             };
             script.onerror = () => reject(new Error('Failed to load keybind settings integration.'));
             document.head.appendChild(script);
-        }).finally(() => {
-            keybindLoading = null;
-        });
-
+        }).finally(() => { keybindLoading = null; });
         return keybindLoading;
     }
 
     async function openUserSettings() {
         if (opening) return opening;
-        if (document.getElementById(HOST_ID)) return true;
+        if (document.getElementById(HOST_ID)) {
+            ensureNavigationSuspended();
+            return true;
+        }
 
+        suspendNavigationForSettings();
         opening = (async () => {
             Dashboard.showLoadingMsg?.();
             try {
@@ -263,16 +264,11 @@
 
                 const sourcePage = document.querySelector('#myPreferencesMenuPage.page:not(.hide), #myPreferencesMenuPage');
                 const mountPoint = sourcePage?.parentElement || document.body;
-
                 const host = document.createElement('div');
                 host.id = HOST_ID;
                 host.innerHTML = sanitizeQoLMarkup(html);
                 applyQoLControlClasses(host);
 
-                // Behave like a normal Jellyfin preference page rather than a
-                // modal overlay: hide the Settings menu page and mount the QoL
-                // page into the same animated-page container. The normal
-                // Jellyfin header/background remain visible and authoritative.
                 if (sourcePage) {
                     hiddenSourcePage = sourcePage;
                     sourcePage.classList.add('hide');
@@ -281,57 +277,55 @@
 
                 setNativeHeaderTitle('QoL Settings');
                 mountPoint.appendChild(host);
-
                 await loadScript();
+
                 const page = host.querySelector('#JellyfinQoLUserSettingsPage');
-                installSafeDynamicGridInputs(page);
+                installSafeDynamicControls(page);
                 await window.JellyfinQoLUserSettingsPage.initialize(page);
                 applyQoLControlClasses(page);
+                ensureNavigationSuspended();
 
-                console.log(LOG, 'Opened DLL-hosted user QoL settings page without legacy Web Component upgrades.');
-
-                // Keybind controls are an enhancement of an already usable
-                // settings page. Load them only after initialization completes,
-                // and never keep Jellyfin's loading overlay open while doing so.
                 setTimeout(() => {
                     loadKeybindIntegration().catch(error => {
                         console.error(LOG, 'Keybind settings integration could not be loaded.', error);
                     });
                 }, 0);
 
+                console.log(LOG, 'Opened DLL-hosted QoL settings with native-input ownership.');
                 return true;
             } catch (error) {
                 document.getElementById(HOST_ID)?.remove();
+                if (hiddenSourcePage?.isConnected) {
+                    hiddenSourcePage.classList.remove('hide');
+                    hiddenSourcePage.removeAttribute('aria-hidden');
+                }
+                hiddenSourcePage = null;
+                restoreNativeHeaderTitle();
+                restoreNavigationSuspension();
                 throw error;
             } finally {
                 opening = null;
                 Dashboard.hideLoadingMsg?.();
             }
         })();
-
         return opening;
     }
 
     function closeUserSettings(options = {}) {
+        try { QoL.userSettingsKeybindIntegration?.pageClosed?.(); } catch (_) {}
         try { window.JellyfinQoLUserSettingsPage?.destroy?.(); } catch (_) {}
         document.getElementById(HOST_ID)?.remove();
 
-        const shouldRestore =
-            options.restoreSource !== false &&
-            /^#\/mypreferencesmenu\b/i.test(location.hash || '');
-
+        const shouldRestore = options.restoreSource !== false && /^#\/mypreferencesmenu\b/i.test(location.hash || '');
         if (shouldRestore && hiddenSourcePage?.isConnected) {
             hiddenSourcePage.classList.remove('hide');
             hiddenSourcePage.removeAttribute('aria-hidden');
             restoreNativeHeaderTitle();
         } else {
-            // A real Jellyfin route change owns the next header title. Do not
-            // restore the old Settings title over the router's new value.
             headerTitleSnapshot = null;
         }
-
         hiddenSourcePage = null;
-        console.log(LOG, 'Closed user QoL settings page.');
+        restoreNavigationSuspension();
         return true;
     }
 
@@ -362,16 +356,19 @@
     QoL.openQoLUserSettings = openUserSettings;
     QoL.closeQoLUserSettings = closeUserSettings;
     QoL.userSettingsBridge = Object.freeze({
-        version:'1.1.3',
+        version: VERSION,
         start,
         destroy,
         ensureEntry,
         open:openUserSettings,
         close:closeUserSettings,
         loadKeybindIntegration,
-        installSafeDynamicGridInputs,
+        ensureNavigationSuspended,
+        suspendNavigationForSettings,
+        restoreNavigationSuspension,
         sanitizeQoLMarkup,
-        applyQoLControlClasses
+        applyQoLControlClasses,
+        installSafeDynamicControls
     });
 
     start();
