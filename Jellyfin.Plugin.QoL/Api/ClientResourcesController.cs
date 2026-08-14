@@ -23,7 +23,8 @@ public sealed class ClientResourcesController : ControllerBase
             ["clientBootstrap.js"] = "Jellyfin.Plugin.QoL.Web.clientBootstrap.js",
             ["runtimeSettings.js"] = "Jellyfin.Plugin.QoL.Web.runtimeSettings.js",
             ["userSettingsBridge.js"] = "Jellyfin.Plugin.QoL.Web.userSettingsBridge.js",
-            ["recordInput.js"] = "Jellyfin.Plugin.QoL.Web.recordInput.js"
+            ["recordInput.js"] = "Jellyfin.Plugin.QoL.Web.recordInput.js",
+            ["inputRegistry.js"] = "Jellyfin.Plugin.QoL.Web.inputRegistry.js"
         };
 
     private const string RecordInputAutoload = """
