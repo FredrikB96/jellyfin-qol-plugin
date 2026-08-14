@@ -2,9 +2,12 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.inputRegistryRuntime?.version === '1.1.0-integration') return;
+    if (QoL.inputRegistryRuntime?.version === '1.2.0-takeover') {
+        QoL.inputRegistryRuntime.reconcileOwnership?.();
+        return;
+    }
 
-    const VERSION = '1.1.0-integration';
+    const VERSION = '1.2.0-takeover';
     const LOG = '[JellyfinQoL.InputRegistry]';
     const LIVE_ADAPTER_METHODS = Object.freeze([
         'start', 'stop', 'reloadBindings', 'getDeviceInfo'
@@ -21,6 +24,8 @@
     let dispatcher = null;
     let suspended = false;
     let suspendReason = null;
+    let api = null;
+    let lastOwnership = null;
 
     function on(event, callback) {
         if (typeof callback !== 'function') return () => {};
@@ -69,6 +74,64 @@
             QoL.settings?.airNav?.input?.activeProfileId ||
             'default'
         );
+    }
+
+    function currentOwnership() {
+        const current = QoL.airNavInput || null;
+        const takeoverActive = !!api && current === api;
+        const legacy = current && current !== api ? current : null;
+        return {
+            takeoverActive,
+            passiveComparisonMode: !!legacy,
+            legacyPresent: !!legacy,
+            legacy
+        };
+    }
+
+    function emitOwnershipIfChanged(next) {
+        const snapshot = {
+            takeoverActive: !!next.takeoverActive,
+            passiveComparisonMode: !!next.passiveComparisonMode,
+            legacyPresent: !!next.legacyPresent
+        };
+        const key = JSON.stringify(snapshot);
+        if (key === lastOwnership) return;
+        lastOwnership = key;
+        emit('ownershipChanged', snapshot);
+    }
+
+    function reconcileOwnership() {
+        if (!api) {
+            return {
+                takeoverActive: false,
+                passiveComparisonMode: false,
+                legacyPresent: false,
+                reason: 'runtime-not-ready'
+            };
+        }
+
+        const current = QoL.airNavInput || null;
+        if (!current || current === api) {
+            QoL.airNavInput = api;
+            const result = {
+                takeoverActive: true,
+                passiveComparisonMode: false,
+                legacyPresent: false,
+                reason: current === api ? 'already-production-owner' : 'production-owner-claimed'
+            };
+            emitOwnershipIfChanged(result);
+            return result;
+        }
+
+        const result = {
+            takeoverActive: false,
+            passiveComparisonMode: true,
+            legacyPresent: true,
+            legacyVersion: current.VERSION || current.version || null,
+            reason: 'legacy-owner-present'
+        };
+        emitOwnershipIfChanged(result);
+        return result;
     }
 
     function registerAdapter(name, adapterFactory) {
@@ -142,7 +205,7 @@
         }
 
         let adapter = instances.get(normalizedName) || captureInstances.get(normalizedName) || null;
-        let source = instances.has(normalizedName)
+        const source = instances.has(normalizedName)
             ? 'enabled-instance'
             : (captureInstances.has(normalizedName) ? 'capture-instance' : 'probe-instance');
         let probeOwned = false;
@@ -493,6 +556,7 @@
     }
 
     function getState() {
+        const ownership = currentOwnership();
         return {
             version: VERSION,
             registeredAdapters: [...factories.keys()],
@@ -503,8 +567,8 @@
             hasDispatcher: typeof dispatcher === 'function',
             activeProfileId: activeProfileId(),
             adapterIntegrationReady: verifyUniversalIntegration().ready === true,
-            takeoverActive: false,
-            passiveComparisonMode: true
+            takeoverActive: ownership.takeoverActive,
+            passiveComparisonMode: ownership.passiveComparisonMode
         };
     }
 
@@ -520,13 +584,14 @@
     }
 
     function compatibilityReport() {
-        const legacy = QoL.airNavInput || null;
+        const ownership = reconcileOwnership();
+        const legacy = ownership.legacyPresent ? (QoL.airNavInput === api ? null : QoL.airNavInput) : null;
         const required = [
             'registerAdapter', 'unregisterAdapter', 'enableAdapter', 'disableAdapter',
             'disableAll', 'reloadBindings', 'beginAdapterCapture', 'endAdapterCapture',
             'getCaptureState', 'setDispatcher', 'dispatch', 'suspend', 'resume',
             'getState', 'getAdapter', 'getDeviceInfo', 'inspectAdapter',
-            'verifyUniversalIntegration', 'on', 'off'
+            'verifyUniversalIntegration', 'reconcileOwnership', 'on', 'off'
         ];
         const runtime = QoL.inputRegistryRuntime;
         const missingMethods = required.filter(method => typeof runtime?.[method] !== 'function');
@@ -538,31 +603,21 @@
             missingMethods,
             adapterIntegrationReady: universal.ready === true,
             universal,
-            takeoverActive: false,
-            passiveComparisonMode: true,
-            legacyPresent: !!legacy,
+            takeoverActive: ownership.takeoverActive,
+            passiveComparisonMode: ownership.passiveComparisonMode,
+            legacyPresent: ownership.legacyPresent,
+            legacyVersion: legacy?.VERSION || legacy?.version || null,
             legacyRegisteredAdapters: legacy?.getState?.().registeredAdapters || [],
             productionRegisteredAdapters: [...factories.keys()],
             universalFactoryPresent: typeof QoL.airNavUniversalInput?.create === 'function',
             hasDispatcher: typeof dispatcher === 'function',
             activeProfileId: activeProfileId(),
-            state: {
-                version: VERSION,
-                registeredAdapters: [...factories.keys()],
-                enabledAdapters: [...instances.keys()],
-                captureOnlyAdapters: [...captureInstances.keys()],
-                suspended,
-                suspendReason,
-                hasDispatcher: typeof dispatcher === 'function',
-                activeProfileId: activeProfileId(),
-                adapterIntegrationReady: universal.ready === true,
-                takeoverActive: false,
-                passiveComparisonMode: true
-            }
+            ownershipReason: ownership.reason,
+            state: getState()
         };
     }
 
-    const api = Object.freeze({
+    api = Object.freeze({
         version: VERSION,
         VERSION,
         registerAdapter,
@@ -584,6 +639,7 @@
         syncKnownAdapters,
         inspectAdapter,
         verifyUniversalIntegration,
+        reconcileOwnership,
         compatibilityReport,
         on,
         off
@@ -591,6 +647,13 @@
 
     QoL.inputRegistryRuntime = api;
     syncKnownAdapters();
+    const ownership = reconcileOwnership();
 
-    console.log(LOG, 'Production input registry integration runtime registered in passive mode.', compatibilityReport());
+    console.log(
+        LOG,
+        ownership.takeoverActive
+            ? 'Production input registry owns JellyfinQoL.airNavInput.'
+            : 'Production input registry registered in passive comparison mode.',
+        compatibilityReport()
+    );
 })();
