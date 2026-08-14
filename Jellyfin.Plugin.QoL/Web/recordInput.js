@@ -2,11 +2,12 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.recordInputRuntime?.version === '1.0.0-capture') return;
+    if (QoL.recordInputRuntime?.version === '1.1.0-commit') return;
 
-    const VERSION = '1.0.0-capture';
+    const VERSION = '1.1.0-commit';
     const LOG = '[JellyfinQoL.RecordInput]';
     const listeners = new Map();
+    const VALID_RESOLUTIONS = new Set(['cancel', 'replace', 'keep-both']);
 
     let state = makeIdleState();
 
@@ -30,8 +31,9 @@
             binding: null,
             conflicts: [],
             lastResult: clone(lastResult),
-            readOnly: true,
-            commitReady: false,
+            readOnly: false,
+            captureReady: true,
+            commitReady: true,
             takeoverActive: false
         };
     }
@@ -78,7 +80,7 @@
         return QoL.airNavInput || null;
     }
 
-    function validateDependencies(action) {
+    function validateCaptureDependencies(action) {
         const profileRuntime = getProfileRuntime();
         const inputRegistry = getInputRegistry();
 
@@ -103,6 +105,15 @@
         }
 
         return { ok:true, action:normalizedAction, profileRuntime, inputRegistry };
+    }
+
+    function validateCommitDependencies() {
+        const runtime = getProfileRuntime();
+        if (!runtime) return { ok:false, reason:'profile-runtime-missing' };
+        if (typeof runtime.commitBinding !== 'function') {
+            return { ok:false, reason:'profile-runtime-method-missing:commitBinding' };
+        }
+        return { ok:true, runtime };
     }
 
     function buildBindingFromCapture(action, capture, profileId = null) {
@@ -170,12 +181,13 @@
             mode: 'PENDING',
             capture: clone(capture),
             binding: clone(binding),
-            conflicts: clone(conflicts)
+            conflicts: clone(conflicts),
+            lastResult: null
         };
 
         emit('captured', getState());
 
-        console.log(LOG, 'Input captured; Part 1 is read-only and will not commit.', {
+        console.log(LOG, 'Input captured; awaiting production commit/cancel.', {
             action: state.action,
             binding: state.binding,
             conflicts: state.conflicts
@@ -191,13 +203,17 @@
             };
         }
 
-        const dependency = validateDependencies(action);
+        const dependency = validateCaptureDependencies(action);
         if (!dependency.ok) return { started:false, ...dependency };
 
         const adapter = String(options.adapter || 'universal');
         const profileId = String(
             options.profileId || dependency.profileRuntime.getActiveProfileId() || 'default'
         );
+
+        if (!dependency.profileRuntime.getProfile?.(profileId)) {
+            return { started:false, reason:'profile-not-found', profileId };
+        }
 
         state = {
             ...makeIdleState(),
@@ -239,6 +255,71 @@
         return payload;
     }
 
+    function commit(options = {}) {
+        if (state.mode !== 'PENDING' || !state.binding) {
+            return {
+                changed: false,
+                reason: 'no-pending-capture',
+                state: getState()
+            };
+        }
+
+        const dependency = validateCommitDependencies();
+        if (!dependency.ok) {
+            state.lastResult = clone(dependency);
+            emit('commitRejected', getState());
+            return dependency;
+        }
+
+        const resolution = String(
+            options.resolution || (state.conflicts.length ? 'cancel' : 'replace')
+        ).toLowerCase();
+
+        if (!VALID_RESOLUTIONS.has(resolution)) {
+            const result = {
+                changed: false,
+                reason: 'invalid-conflict-resolution',
+                resolution,
+                allowed: [...VALID_RESOLUTIONS]
+            };
+            state.lastResult = clone(result);
+            emit('commitRejected', getState());
+            return result;
+        }
+
+        if (resolution === 'cancel') {
+            return cancel('capture-cancelled');
+        }
+
+        const result = dependency.runtime.commitBinding(
+            state.binding,
+            {
+                profileId: state.profileId,
+                mode: options.mode || 'replace-action',
+                conflictResolution: resolution,
+                allowCriticalUnbound: options.allowCriticalUnbound === true
+            }
+        );
+
+        // Safety/conflict failures stay pending so the user can choose another
+        // resolution or cancel without losing the captured neutral descriptor.
+        if (!result?.changed) {
+            state.lastResult = clone(result || { changed:false, reason:'commit-failed' });
+            emit('commitRejected', getState());
+            return result || state.lastResult;
+        }
+
+        return finish(result, 'committed');
+    }
+
+    async function flushPersistence() {
+        const runtime = getProfileRuntime();
+        if (typeof runtime?.flushPersistence !== 'function') {
+            return { saved:false, reason:'profile-runtime-method-missing:flushPersistence' };
+        }
+        return await runtime.flushPersistence();
+    }
+
     function cancel(reason = 'cancelled') {
         if (state.mode === 'IDLE') {
             return { changed:false, reason:'recorder-idle' };
@@ -263,22 +344,29 @@
         const legacy = QoL.airKeybindRecorder || null;
         const registry = getInputRegistry();
         const runtime = getProfileRuntime();
+        const captureReady =
+            typeof registry?.beginAdapterCapture === 'function' &&
+            typeof registry?.endAdapterCapture === 'function' &&
+            typeof runtime?.makeCapturedBinding === 'function' &&
+            typeof runtime?.analyzeConflicts === 'function';
+        const commitReady =
+            typeof runtime?.commitBinding === 'function' &&
+            typeof runtime?.flushPersistence === 'function';
 
         return {
             version: VERSION,
-            ready: !!registry && !!runtime,
-            readOnly: true,
-            captureReady:
-                typeof registry?.beginAdapterCapture === 'function' &&
-                typeof runtime?.makeCapturedBinding === 'function' &&
-                typeof runtime?.analyzeConflicts === 'function',
-            commitReady: false,
+            ready: captureReady && commitReady,
+            readOnly: false,
+            captureReady,
+            commitReady,
+            persistenceReady: typeof runtime?.flushPersistence === 'function',
             takeoverActive: false,
             legacyPresent: !!legacy,
             legacyVersion: legacy?.VERSION || legacy?.version || null,
             inputRegistryPresent: !!registry,
             profileRuntimePresent: !!runtime,
             activeProfileId: runtime?.getActiveProfileId?.() || null,
+            conflictResolutions: [...VALID_RESOLUTIONS],
             state: getState()
         };
     }
@@ -292,8 +380,10 @@
         version: VERSION,
         VERSION,
         start,
+        commit,
         cancel,
         clearPending,
+        flushPersistence,
         getState,
         buildBindingFromCapture,
         compatibilityReport,
@@ -302,5 +392,5 @@
         destroy
     });
 
-    console.log(LOG, 'Production record-input capture core registered.', compatibilityReport());
+    console.log(LOG, 'Production record-input commit runtime registered.', compatibilityReport());
 })();
