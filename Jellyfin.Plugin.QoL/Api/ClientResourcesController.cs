@@ -97,15 +97,13 @@ public sealed class ClientResourcesController : ControllerBase
             var gestureResolverStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolver.js"]);
             var directionalPolicyStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolverDirectionalPolicy.js"]);
             var universalInputStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["universalInput.js"]);
-            var keybindIntegrationStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["userSettingsKeybindIntegration.js"]);
-            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || keybindIntegrationStream is null)
+            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null)
             {
                 stream.Dispose();
                 inputRegistryStream?.Dispose();
                 gestureResolverStream?.Dispose();
                 directionalPolicyStream?.Dispose();
                 universalInputStream?.Dispose();
-                keybindIntegrationStream?.Dispose();
                 return NotFound();
             }
 
@@ -114,26 +112,22 @@ public sealed class ClientResourcesController : ControllerBase
             using (gestureResolverStream)
             using (directionalPolicyStream)
             using (universalInputStream)
-            using (keybindIntegrationStream)
             using (var bootstrapReader = new StreamReader(stream))
             using (var inputRegistryReader = new StreamReader(inputRegistryStream))
             using (var gestureResolverReader = new StreamReader(gestureResolverStream))
             using (var directionalPolicyReader = new StreamReader(directionalPolicyStream))
             using (var universalInputReader = new StreamReader(universalInputStream))
-            using (var keybindIntegrationReader = new StreamReader(keybindIntegrationStream))
             {
                 var inputRegistry = inputRegistryReader.ReadToEnd();
                 var gestureResolver = gestureResolverReader.ReadToEnd();
                 var directionalPolicy = directionalPolicyReader.ReadToEnd();
                 var universalInput = universalInputReader.ReadToEnd();
-                var keybindIntegration = keybindIntegrationReader.ReadToEnd();
                 var bootstrap = bootstrapReader.ReadToEnd();
                 return Content(
                     inputRegistry + "\n" +
                     gestureResolver + "\n" +
                     directionalPolicy + "\n" +
                     universalInput + "\n" +
-                    keybindIntegration + "\n" +
                     bootstrap + RecordInputAutoload,
                     "text/javascript; charset=utf-8");
             }
