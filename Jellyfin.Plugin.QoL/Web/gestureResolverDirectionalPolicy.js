@@ -2,8 +2,8 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.1.0';
-    const RESOLVER_VERSION = '1.1.1';
+    const VERSION = '1.2.0';
+    const RESOLVER_VERSION = '1.1.2';
     const LOG = '[JellyfinQoL.GestureResolverDirectionalPolicy]';
     const DIRECTIONS = Object.freeze(['UP', 'DOWN', 'LEFT', 'RIGHT']);
     const DIRECTION_SET = new Set(DIRECTIONS);
@@ -80,10 +80,25 @@
     function directionalProgress(result) {
         if (!result || typeof result !== 'object') return false;
 
-        const explicitMove = nestedMoveFlag(result);
-        if (typeof explicitMove === 'boolean') return explicitMove;
-
         const reason = String(result.reason || '').toLowerCase();
+
+        // Geometry can report an available candidate with handled:false before
+        // the downstream focus layer finishes the navigation cycle. Those
+        // results mean that holding the direction should continue, not stop.
+        if (
+            reason === 'candidate-found' ||
+            reason === 'same-section-vertical' ||
+            reason === 'neighbor-section' ||
+            reason === 'moved' ||
+            reason === 'initial-selection' ||
+            reason === 'initial-selection-pending'
+        ) {
+            return true;
+        }
+
+        const explicitMove = nestedMoveFlag(result);
+        if (explicitMove === true) return true;
+
         if (
             reason.includes('clamp') ||
             reason.includes('edge') ||
@@ -93,11 +108,13 @@
             reason.includes('not-moved') ||
             reason.includes('repeat-blocked') ||
             reason.includes('navigation-missing') ||
-            reason.includes('selection-missing')
+            reason.includes('selection-missing') ||
+            reason.includes('focus-rejected-target')
         ) {
             return false;
         }
 
+        if (explicitMove === false) return false;
         return result.handled !== false;
     }
 
@@ -114,19 +131,55 @@
         try { probe?.destroy?.(); } catch (_) {}
     }
 
-    if (!prototype || typeof prototype.reloadBindings !== 'function' || typeof prototype.runRepeat !== 'function') {
+    if (
+        !prototype ||
+        typeof prototype.reloadBindings !== 'function' ||
+        typeof prototype.handlePress !== 'function' ||
+        typeof prototype.scheduleRepeat !== 'function' ||
+        typeof prototype.runRepeat !== 'function'
+    ) {
         console.error(LOG, 'GestureResolver prototype does not expose required methods.');
         return;
     }
 
     if (prototype.__jellyfinQolDirectionalPolicyVersion !== VERSION) {
         const originalReloadBindings = prototype.reloadBindings;
+        const originalHandlePress = prototype.handlePress;
         const originalRunRepeat = prototype.runRepeat;
 
         prototype.reloadBindings = function (...args) {
             originalReloadBindings.apply(this, args);
             normalizeDirectionalBindings(this, args[1] || 'reload-bindings');
             return this.getBindings();
+        };
+
+        prototype.handlePress = function (input, identity, groups) {
+            const result = originalHandlePress.call(this, input, identity, groups);
+            const repeatBinding = this.chooseBinding?.(groups?.repeat, 'repeat', identity) || null;
+
+            if (!isDirection(repeatBinding)) return result;
+
+            const state = this.activePresses?.get(identity) || null;
+            if (!state?.pressed || !state.repeatMode || !state.activeBinding) return result;
+
+            // Directional input owns the physical button as soon as the binding
+            // matches. Do not depend on Controller.handled: Geometry can return
+            // candidate-found with handled:false even though the directional
+            // input is valid and should arm hold-repeat.
+            state.ownedPhysical = true;
+
+            if (!state.repeatTimer && !state.repeatStoppedAtBoundary) {
+                this.scheduleRepeat(state, state.activeBinding);
+            }
+
+            return {
+                ...result,
+                handled: true,
+                claimed: true,
+                reason: result?.reason === 'repeat-press-unhandled'
+                    ? 'directional-press-owned'
+                    : (result?.reason || 'directional-press-owned')
+            };
         };
 
         prototype.runRepeat = function (state) {
@@ -157,11 +210,6 @@
                 syntheticDirectionalTap: true
             };
 
-            // Directional hold is intentionally emitted as another complete
-            // canonical tap instead of as a special `repeat` phase. This makes
-            // a held direction behave exactly like rapidly tapping the same
-            // bound physical button, across page navigation, modals, forms,
-            // native/player controls, and future input devices.
             const pressed = this.dispatchResolved(
                 state.activeBinding,
                 'press',
@@ -240,6 +288,8 @@
                     doubleTap: 'two-independent-steps',
                     hold: 'repeat-tap-cycles-until-release-or-boundary',
                     repeatEmission: 'canonical-press-release',
+                    ownership: 'binding-match',
+                    candidateFoundContinuesRepeat: true,
                     longGestureAllowed: false,
                     doubleGestureAllowed: false,
                     storedGestureIgnoredForDirections: true
@@ -258,7 +308,8 @@
             tap: 'one-step',
             doubleTap: 'two-independent-steps',
             hold: 'repeat-tap-cycles-until-release-or-boundary',
-            repeatEmission: 'canonical-press-release'
+            repeatEmission: 'canonical-press-release',
+            ownership: 'binding-match'
         }),
         directionalProgress
     });
