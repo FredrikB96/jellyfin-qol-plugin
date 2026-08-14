@@ -2,10 +2,16 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.inputRegistryRuntime?.version === '1.0.0-passive') return;
+    if (QoL.inputRegistryRuntime?.version === '1.1.0-integration') return;
 
-    const VERSION = '1.0.0-passive';
+    const VERSION = '1.1.0-integration';
     const LOG = '[JellyfinQoL.InputRegistry]';
+    const LIVE_ADAPTER_METHODS = Object.freeze([
+        'start', 'stop', 'reloadBindings', 'getDeviceInfo'
+    ]);
+    const CAPTURE_ADAPTER_METHODS = Object.freeze([
+        'beginCapture', 'endCapture', 'getCaptureState'
+    ]);
 
     const factories = new Map();
     const instances = new Map();
@@ -104,6 +110,95 @@
         return results;
     }
 
+    function adapterMethodReport(adapter) {
+        const methods = {};
+        [...LIVE_ADAPTER_METHODS, ...CAPTURE_ADAPTER_METHODS].forEach(method => {
+            methods[method] = typeof adapter?.[method] === 'function';
+        });
+
+        const missingLiveMethods = LIVE_ADAPTER_METHODS.filter(method => !methods[method]);
+        const missingCaptureMethods = CAPTURE_ADAPTER_METHODS.filter(method => !methods[method]);
+
+        return {
+            methods,
+            missingLiveMethods,
+            missingCaptureMethods,
+            liveReady: missingLiveMethods.length === 0,
+            captureReady: missingCaptureMethods.length === 0,
+            ready: missingLiveMethods.length === 0 && missingCaptureMethods.length === 0
+        };
+    }
+
+    function inspectAdapter(name, options = {}) {
+        const normalizedName = String(name || '').trim();
+        if (!normalizedName) {
+            return { ready:false, reason:'adapter-name-required', adapter:normalizedName };
+        }
+
+        if (!factories.has(normalizedName)) syncKnownAdapters();
+        const factory = factories.get(normalizedName);
+        if (!factory) {
+            return { ready:false, reason:'adapter-not-registered', adapter:normalizedName };
+        }
+
+        let adapter = instances.get(normalizedName) || captureInstances.get(normalizedName) || null;
+        let source = instances.has(normalizedName)
+            ? 'enabled-instance'
+            : (captureInstances.has(normalizedName) ? 'capture-instance' : 'probe-instance');
+        let probeOwned = false;
+
+        if (!adapter) {
+            try {
+                adapter = factory({
+                    captureOnly: true,
+                    ...(options.adapterOptions || {})
+                });
+                probeOwned = true;
+            } catch (error) {
+                return {
+                    ready:false,
+                    reason:'adapter-probe-create-failed',
+                    adapter:normalizedName,
+                    error
+                };
+            }
+        }
+
+        const contract = adapterMethodReport(adapter);
+        let device = null;
+        let captureState = null;
+
+        try { device = adapter.getDeviceInfo?.() || null; }
+        catch (error) { device = { error:String(error?.message || error) }; }
+
+        try { captureState = adapter.getCaptureState?.() || null; }
+        catch (error) { captureState = { error:String(error?.message || error) }; }
+
+        if (probeOwned) {
+            try { adapter.stop?.(); } catch (_) {}
+        }
+
+        return {
+            adapter: normalizedName,
+            source,
+            probeOwned,
+            ...contract,
+            device,
+            captureState
+        };
+    }
+
+    function verifyUniversalIntegration() {
+        const sync = syncKnownAdapters();
+        const report = inspectAdapter('universal');
+        return {
+            ...report,
+            sync,
+            factoryPresent: typeof QoL.airNavUniversalInput?.create === 'function',
+            factoryVersion: QoL.airNavUniversalInput?.VERSION || QoL.airNavUniversalInput?.version || null
+        };
+    }
+
     function setDispatcher(nextDispatcher) {
         dispatcher = typeof nextDispatcher === 'function' ? nextDispatcher : null;
         emit('dispatcherChanged', { hasDispatcher: typeof dispatcher === 'function' });
@@ -170,8 +265,12 @@
             return null;
         }
 
-        if (!adapter || typeof adapter.start !== 'function') {
-            console.error(`${LOG} adapter ${normalizedName} does not implement start(dispatch).`);
+        const contract = adapterMethodReport(adapter);
+        if (!contract.liveReady) {
+            console.error(
+                `${LOG} adapter ${normalizedName} is missing live methods: ${contract.missingLiveMethods.join(', ')}`
+            );
+            try { adapter?.stop?.(); } catch (_) {}
             return null;
         }
 
@@ -277,12 +376,14 @@
             }
         }
 
-        if (typeof adapter.beginCapture !== 'function') {
+        const contract = adapterMethodReport(adapter);
+        if (!contract.captureReady) {
             if (captureOnly) captureInstances.delete(normalizedName);
             return {
                 started: false,
                 reason: 'adapter-does-not-support-capture',
-                adapter: normalizedName
+                adapter: normalizedName,
+                missingMethods: contract.missingCaptureMethods
             };
         }
 
@@ -401,6 +502,7 @@
             suspendReason,
             hasDispatcher: typeof dispatcher === 'function',
             activeProfileId: activeProfileId(),
+            adapterIntegrationReady: verifyUniversalIntegration().ready === true,
             takeoverActive: false,
             passiveComparisonMode: true
         };
@@ -423,24 +525,40 @@
             'registerAdapter', 'unregisterAdapter', 'enableAdapter', 'disableAdapter',
             'disableAll', 'reloadBindings', 'beginAdapterCapture', 'endAdapterCapture',
             'getCaptureState', 'setDispatcher', 'dispatch', 'suspend', 'resume',
-            'getState', 'getAdapter', 'getDeviceInfo', 'on', 'off'
+            'getState', 'getAdapter', 'getDeviceInfo', 'inspectAdapter',
+            'verifyUniversalIntegration', 'on', 'off'
         ];
         const runtime = QoL.inputRegistryRuntime;
         const missingMethods = required.filter(method => typeof runtime?.[method] !== 'function');
+        const universal = verifyUniversalIntegration();
 
         return {
             version: VERSION,
-            ready: missingMethods.length === 0,
+            ready: missingMethods.length === 0 && universal.ready === true,
             missingMethods,
+            adapterIntegrationReady: universal.ready === true,
+            universal,
             takeoverActive: false,
             passiveComparisonMode: true,
             legacyPresent: !!legacy,
             legacyRegisteredAdapters: legacy?.getState?.().registeredAdapters || [],
-            productionRegisteredAdapters: getState().registeredAdapters,
+            productionRegisteredAdapters: [...factories.keys()],
             universalFactoryPresent: typeof QoL.airNavUniversalInput?.create === 'function',
             hasDispatcher: typeof dispatcher === 'function',
             activeProfileId: activeProfileId(),
-            state: getState()
+            state: {
+                version: VERSION,
+                registeredAdapters: [...factories.keys()],
+                enabledAdapters: [...instances.keys()],
+                captureOnlyAdapters: [...captureInstances.keys()],
+                suspended,
+                suspendReason,
+                hasDispatcher: typeof dispatcher === 'function',
+                activeProfileId: activeProfileId(),
+                adapterIntegrationReady: universal.ready === true,
+                takeoverActive: false,
+                passiveComparisonMode: true
+            }
         };
     }
 
@@ -464,6 +582,8 @@
         getAdapter,
         getDeviceInfo,
         syncKnownAdapters,
+        inspectAdapter,
+        verifyUniversalIntegration,
         compatibilityReport,
         on,
         off
@@ -472,5 +592,5 @@
     QoL.inputRegistryRuntime = api;
     syncKnownAdapters();
 
-    console.log(LOG, 'Production input registry registered in passive mode.', compatibilityReport());
+    console.log(LOG, 'Production input registry integration runtime registered in passive mode.', compatibilityReport());
 })();
