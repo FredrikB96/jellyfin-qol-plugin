@@ -33,6 +33,7 @@
     <None Remove="Web\gestureResolver.js" />
     <None Remove="Web\gestureResolverDirectionalPolicy.js" />
     <None Remove="Web\universalInput.js" />
+    <None Remove="Web\controlBridge.js" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.js" />
@@ -45,5 +46,6 @@
     <EmbeddedResource Include="Web\gestureResolver.js" />
     <EmbeddedResource Include="Web\gestureResolverDirectionalPolicy.js" />
     <EmbeddedResource Include="Web\universalInput.js" />
+    <EmbeddedResource Include="Web\controlBridge.js" />
   </ItemGroup>
 </Project>
