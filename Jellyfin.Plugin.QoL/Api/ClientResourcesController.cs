@@ -24,7 +24,8 @@ public sealed class ClientResourcesController : ControllerBase
             ["runtimeSettings.js"] = "Jellyfin.Plugin.QoL.Web.runtimeSettings.js",
             ["userSettingsBridge.js"] = "Jellyfin.Plugin.QoL.Web.userSettingsBridge.js",
             ["recordInput.js"] = "Jellyfin.Plugin.QoL.Web.recordInput.js",
-            ["inputRegistry.js"] = "Jellyfin.Plugin.QoL.Web.inputRegistry.js"
+            ["inputRegistry.js"] = "Jellyfin.Plugin.QoL.Web.inputRegistry.js",
+            ["gestureResolver.js"] = "Jellyfin.Plugin.QoL.Web.gestureResolver.js"
         };
 
     private const string RecordInputAutoload = """
@@ -90,21 +91,27 @@ public sealed class ClientResourcesController : ControllerBase
         if (name.Equals("clientBootstrap.js", StringComparison.OrdinalIgnoreCase))
         {
             var inputRegistryStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["inputRegistry.js"]);
-            if (inputRegistryStream is null)
+            var gestureResolverStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolver.js"]);
+            if (inputRegistryStream is null || gestureResolverStream is null)
             {
                 stream.Dispose();
+                inputRegistryStream?.Dispose();
+                gestureResolverStream?.Dispose();
                 return NotFound();
             }
 
             using (stream)
             using (inputRegistryStream)
+            using (gestureResolverStream)
             using (var bootstrapReader = new StreamReader(stream))
             using (var inputRegistryReader = new StreamReader(inputRegistryStream))
+            using (var gestureResolverReader = new StreamReader(gestureResolverStream))
             {
                 var inputRegistry = inputRegistryReader.ReadToEnd();
+                var gestureResolver = gestureResolverReader.ReadToEnd();
                 var bootstrap = bootstrapReader.ReadToEnd();
                 return Content(
-                    inputRegistry + "\n" + bootstrap + RecordInputAutoload,
+                    inputRegistry + "\n" + gestureResolver + "\n" + bootstrap + RecordInputAutoload,
                     "text/javascript; charset=utf-8");
             }
         }
