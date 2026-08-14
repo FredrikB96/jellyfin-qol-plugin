@@ -2,18 +2,21 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsKeybindIntegration?.version === '1.0.0') return;
+    if (QoL.userSettingsKeybindIntegration?.version === '1.1.0') return;
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
     const LOG = '[JellyfinQoL.UserSettingsKeybindIntegration]';
     const ROOT_ID = 'JellyfinQoLUserSettingsPage';
     const DIRECTION_ACTIONS = new Set(['UP', 'DOWN', 'LEFT', 'RIGHT']);
+    const DIRECTION_DESCRIPTION =
+        'Press Record, then press any supported button. Directional actions always use tap = one step, double tap = two steps, and hold = repeat until release or the navigation edge.';
 
     let activeRecordButton = null;
     let activeRecordOriginalText = null;
     let recorderUnsubscribers = [];
+    let runtimeUnsubscribers = [];
     let busy = false;
-    let observer = null;
+    let decorateScheduled = false;
 
     function root() {
         return document.getElementById(ROOT_ID);
@@ -25,10 +28,16 @@
         catch (_) { return value; }
     }
 
+    function ensureSettingsSuspended() {
+        try { QoL.userSettingsBridge?.ensureNavigationSuspended?.(); }
+        catch (error) { console.warn(LOG, 'Could not restore settings input suspension.', error); }
+    }
+
     function setStatus(message) {
+        const text = String(message || '');
         const element = root()?.querySelector('#qolUserSaveStatus');
-        if (element) element.textContent = String(message || '');
-        console.log(LOG, message);
+        if (element && element.textContent !== text) element.textContent = text;
+        console.log(LOG, text);
     }
 
     function notify(message) {
@@ -45,8 +54,9 @@
     }
 
     function actionLabel(action) {
-        const row = root()?.querySelector(`tr[data-binding-action="${CSS.escape(String(action || ''))}"]`);
-        return row?.querySelector('strong')?.textContent?.trim() || String(action || '');
+        const normalized = String(action || '').toUpperCase();
+        const row = root()?.querySelector(`tr[data-binding-action="${CSS.escape(normalized)}"]`);
+        return row?.querySelector('strong')?.textContent?.trim() || normalized;
     }
 
     function describeTrigger(binding) {
@@ -79,6 +89,12 @@
         });
     }
 
+    function clearRuntimeListeners() {
+        runtimeUnsubscribers.splice(0).forEach(unsubscribe => {
+            try { unsubscribe?.(); } catch (_) {}
+        });
+    }
+
     function restoreRecordButton() {
         if (activeRecordButton?.isConnected) {
             activeRecordButton.disabled = false;
@@ -107,9 +123,7 @@
         while (Date.now() - started < timeoutMs) {
             const status = currentSaveStatus(page);
             if (/^Saved\.?$/i.test(status)) return { saved:true, status };
-            if (/save failed/i.test(status) || /could not load/i.test(status)) {
-                return { saved:false, status };
-            }
+            if (/save failed/i.test(status) || /could not load/i.test(status)) return { saved:false, status };
             await new Promise(resolve => setTimeout(resolve, 60));
         }
         return { saved:false, status:'Timed out waiting for settings save.' };
@@ -124,7 +138,6 @@
         const form = page?.querySelector('#JellyfinQoLUserSettingsForm');
         if (!form) return { saved:false, status:'Settings form not found.' };
 
-        setStatus('Saving current settings before changing keybinds…');
         try {
             if (typeof form.requestSubmit === 'function') form.requestSubmit();
             else form.dispatchEvent(new Event('submit', { bubbles:true, cancelable:true }));
@@ -135,18 +148,50 @@
         return await waitForSave(page);
     }
 
-    async function refreshAndReloadPage(reason, successMessage) {
-        try {
-            await QoL.profileRuntime?.flushPersistence?.();
-        } catch (error) {
-            console.warn(LOG, 'Profile persistence flush failed.', error);
+    function scheduleDecorate() {
+        if (decorateScheduled) return;
+        decorateScheduled = true;
+        setTimeout(() => {
+            decorateScheduled = false;
+            decorateDirectionalRows();
+        }, 0);
+    }
+
+    function decorateDirectionalRows() {
+        const page = root();
+        if (!page) return false;
+
+        const keybindSection = page.querySelector('#qolUserBindings')?.closest('.qol-user-subsection');
+        const description = keybindSection?.querySelector('.fieldDescription');
+        if (description && description.textContent !== DIRECTION_DESCRIPTION) {
+            description.textContent = DIRECTION_DESCRIPTION;
         }
 
-        try {
-            await QoL.runtimeSettings?.refresh?.(`keybind-ui:${reason}`, { forceServer:true });
-        } catch (error) {
-            console.warn(LOG, 'Runtime settings refresh failed.', error);
+        let changed = false;
+        for (const action of DIRECTION_ACTIONS) {
+            const row = page.querySelector(`tr[data-binding-action="${action}"]`);
+            if (!row || row.dataset.qolDirectionalDecorated === VERSION) continue;
+
+            const gestureCell = row.querySelector('[data-binding-field="gesture"]')?.closest('td');
+            const longCell = row.querySelector('[data-binding-field="longPressMs"]')?.closest('td');
+            const repeatCell = row.querySelector('[data-binding-field="allowRepeat"]')?.closest('td');
+
+            if (gestureCell) gestureCell.innerHTML = '<span class="fieldDescription">Tap / hold</span>';
+            if (longCell) longCell.innerHTML = '<span aria-label="Not applicable">—</span>';
+            if (repeatCell) repeatCell.innerHTML = '<span class="fieldDescription">Fixed</span>';
+
+            row.dataset.qolDirectionalDecorated = VERSION;
+            changed = true;
         }
+        return changed;
+    }
+
+    async function refreshAndReloadPage(reason, successMessage) {
+        try { await QoL.profileRuntime?.flushPersistence?.(); }
+        catch (error) { console.warn(LOG, 'Profile persistence flush failed.', error); }
+
+        try { await QoL.runtimeSettings?.refresh?.(`keybind-ui:${reason}`, { forceServer:true }); }
+        catch (error) { console.warn(LOG, 'Runtime settings refresh failed.', error); }
 
         const page = root();
         if (page && window.JellyfinQoLUserSettingsPage?.initialize) {
@@ -158,6 +203,7 @@
             }
         }
 
+        ensureSettingsSuspended();
         decorateDirectionalRows();
         setStatus(successMessage || 'Saved.');
     }
@@ -202,21 +248,18 @@
         const binding = clone(state?.binding);
         if (!binding) {
             recorder.cancel?.('settings-ui-missing-binding');
+            ensureSettingsSuspended();
             restoreRecordButton();
+            clearRecorderListeners();
             setStatus('Recording failed: no binding was produced.');
             return;
         }
 
-        if (DIRECTION_ACTIONS.has(action)) {
-            binding.gesture = 'repeat';
-            binding.allowRepeat = true;
-            binding.longPressMs = null;
-        }
-
-        const conflicts = runtime.analyzeConflicts?.(binding, profileId) || [];
+        const conflicts = runtime.analyzeConflicts?.(binding, profileId) || state?.conflicts || [];
         const decision = confirmReplacement(action, binding, conflicts);
         if (!decision.allowed) {
             recorder.cancel?.('settings-ui-conflict-cancelled');
+            ensureSettingsSuspended();
             restoreRecordButton();
             clearRecorderListeners();
             setStatus('Keybind recording cancelled.');
@@ -224,13 +267,16 @@
         }
 
         const result = recorder.commit({
-            resolution: conflicts.length ? 'replace' : 'replace',
+            resolution: 'replace',
             mode: 'replace-action',
             allowCriticalUnbound: decision.allowCriticalUnbound
         });
 
+        ensureSettingsSuspended();
+
         if (!result?.changed) {
             recorder.cancel?.('settings-ui-commit-failed');
+            ensureSettingsSuspended();
             restoreRecordButton();
             clearRecorderListeners();
             setStatus(`Could not save keybind: ${result?.reason || 'commit failed'}.`);
@@ -252,15 +298,12 @@
             const page = root();
             const recorder = QoL.recordInputRuntime;
             const runtime = QoL.profileRuntime;
-
             if (!page || !recorder || !runtime) {
                 notify('Production keybind runtime is not ready yet.');
                 return;
             }
 
-            if (recorder.getState?.().mode !== 'IDLE') {
-                recorder.cancel?.('settings-ui-restart-recording');
-            }
+            if (recorder.getState?.().mode !== 'IDLE') recorder.cancel?.('settings-ui-restart-recording');
 
             const saved = await ensurePageSaved(page);
             if (!saved.saved) {
@@ -268,9 +311,8 @@
                 return;
             }
 
-            try {
-                await QoL.runtimeSettings?.refresh?.('keybind-ui-before-record', { forceServer:true });
-            } catch (_) {}
+            try { await QoL.runtimeSettings?.refresh?.('keybind-ui-before-record', { forceServer:true }); }
+            catch (_) {}
 
             const action = String(button.dataset.action || '').toUpperCase();
             const profileId = selectedProfileId(page);
@@ -281,12 +323,14 @@
                 handleCaptured(state, action, profileId).catch(error => {
                     console.error(LOG, 'Captured keybind commit failed.', error);
                     try { recorder.cancel?.('settings-ui-captured-error'); } catch (_) {}
+                    ensureSettingsSuspended();
                     restoreRecordButton();
                     clearRecorderListeners();
                     setStatus(`Keybind save failed: ${error?.message || error}`);
                 });
             }));
             recorderUnsubscribers.push(recorder.on('captureRejected', payload => {
+                ensureSettingsSuspended();
                 restoreRecordButton();
                 clearRecorderListeners();
                 setStatus(`Input could not be recorded: ${payload?.result?.reason || 'unsupported input'}.`);
@@ -297,6 +341,7 @@
 
             const started = recorder.start(action, { profileId, adapter:'universal' });
             if (!started?.started) {
+                ensureSettingsSuspended();
                 restoreRecordButton();
                 clearRecorderListeners();
                 setStatus(`Could not start recording: ${started?.reason || 'unknown error'}.`);
@@ -323,9 +368,8 @@
                 return;
             }
 
-            try {
-                await QoL.runtimeSettings?.refresh?.('keybind-ui-before-clear', { forceServer:true });
-            } catch (_) {}
+            try { await QoL.runtimeSettings?.refresh?.('keybind-ui-before-clear', { forceServer:true }); }
+            catch (_) {}
 
             const action = String(button.dataset.action || '').toUpperCase();
             const profileId = selectedProfileId(page);
@@ -349,12 +393,7 @@
                 allowCriticalUnbound = true;
             }
 
-            const result = runtime.clearBindingsForAction?.(
-                action,
-                profileId,
-                { allowCriticalUnbound }
-            );
-
+            const result = runtime.clearBindingsForAction?.(action, profileId, { allowCriticalUnbound });
             if (!result?.changed) {
                 setStatus(`Could not clear keybind: ${result?.reason || 'clear failed'}.`);
                 return;
@@ -363,32 +402,6 @@
             await refreshAndReloadPage('clear', `${actionLabel(action)} binding cleared.`);
         } finally {
             busy = false;
-        }
-    }
-
-    function decorateDirectionalRows() {
-        const page = root();
-        if (!page) return;
-
-        const keybindSection = page.querySelector('#qolUserBindings')?.closest('.qol-user-subsection');
-        const description = keybindSection?.querySelector('.fieldDescription');
-        if (description) {
-            description.textContent = 'Press Record, then press any supported button. Directional actions always use tap = one step, double tap = two steps, and hold = repeat until release or the navigation edge.';
-        }
-
-        for (const action of DIRECTION_ACTIONS) {
-            const row = page.querySelector(`tr[data-binding-action="${action}"]`);
-            if (!row || row.dataset.qolDirectionalDecorated === VERSION) continue;
-
-            const gesture = row.querySelector('[data-binding-field="gesture"]');
-            const longPress = row.querySelector('[data-binding-field="longPressMs"]');
-            const repeat = row.querySelector('[data-binding-field="allowRepeat"]');
-
-            if (gesture?.closest('td')) gesture.closest('td').innerHTML = '<span class="fieldDescription">Tap / hold</span>';
-            if (longPress?.closest('td')) longPress.closest('td').innerHTML = '<span aria-label="Not applicable">—</span>';
-            if (repeat?.closest('td')) repeat.closest('td').innerHTML = '<span class="fieldDescription">Fixed</span>';
-
-            row.dataset.qolDirectionalDecorated = VERSION;
         }
     }
 
@@ -408,6 +421,7 @@
         if (command === 'binding-record') {
             beginRecord(button).catch(error => {
                 console.error(LOG, 'Record command failed.', error);
+                ensureSettingsSuspended();
                 restoreRecordButton();
                 clearRecorderListeners();
                 setStatus(`Record failed: ${error?.message || error}`);
@@ -420,36 +434,48 @@
         }
     }
 
-    function handleMutation() {
-        decorateDirectionalRows();
-        if (!root() && QoL.recordInputRuntime?.getState?.().mode !== 'IDLE') {
+    function handleChangeCapture(event) {
+        const page = root();
+        if (!page || !page.contains(event.target)) return;
+        if (event.target?.id === 'qolUserProfileSelector') scheduleDecorate();
+    }
+
+    function bindRuntimeEvents() {
+        clearRuntimeListeners();
+        const runtime = QoL.profileRuntime;
+        if (!runtime?.on) return;
+        ['profileChanged', 'profileCreated', 'profileDeleted', 'profileReset', 'bindingsChanged', 'bindingCommitted', 'bindingRemoved']
+            .forEach(eventName => runtimeUnsubscribers.push(runtime.on(eventName, scheduleDecorate)));
+    }
+
+    function pageClosed() {
+        if (QoL.recordInputRuntime?.getState?.().mode !== 'IDLE') {
             try { QoL.recordInputRuntime.cancel?.('settings-page-closed'); } catch (_) {}
-            restoreRecordButton();
-            clearRecorderListeners();
         }
+        restoreRecordButton();
+        clearRecorderListeners();
     }
 
     function start() {
         document.addEventListener('click', handleClickCapture, true);
-        observer = new MutationObserver(handleMutation);
-        observer.observe(document.documentElement, { childList:true, subtree:true });
+        document.addEventListener('change', handleChangeCapture, true);
+        bindRuntimeEvents();
         decorateDirectionalRows();
-        console.log(LOG, 'Production keybind settings integration started.');
+        console.log(LOG, 'Production keybind settings integration started without a MutationObserver.');
     }
 
     function destroy() {
         document.removeEventListener('click', handleClickCapture, true);
-        observer?.disconnect();
-        observer = null;
-        try { QoL.recordInputRuntime?.cancel?.('keybind-integration-destroyed'); } catch (_) {}
-        restoreRecordButton();
-        clearRecorderListeners();
+        document.removeEventListener('change', handleChangeCapture, true);
+        pageClosed();
+        clearRuntimeListeners();
     }
 
     QoL.userSettingsKeybindIntegration = Object.freeze({
         version: VERSION,
         start,
         destroy,
+        pageClosed,
         decorateDirectionalRows,
         getState() {
             return {
@@ -459,7 +485,8 @@
                 recorderVersion: QoL.recordInputRuntime?.version || null,
                 recorderState: clone(QoL.recordInputRuntime?.getState?.() || null),
                 pageOpen: !!root(),
-                busy
+                busy,
+                mutationObserver: false
             };
         }
     });
