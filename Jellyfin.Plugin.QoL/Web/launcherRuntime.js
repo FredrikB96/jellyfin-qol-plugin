@@ -1,9 +1,9 @@
-// Jellyfin QoL - Production AirNav Launcher / Client-Local Gate v1.0.0
+// Jellyfin QoL - Production AirNav Launcher / Client-Local Gate v1.0.1
 (function () {
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const LEGACY_VERSION = '13.1';
     const LOG = '[JellyfinQoL.Launcher]';
     const ENROLLMENT_KEY = 'jellyfin-qol-airnav-client-v1';
@@ -21,6 +21,7 @@
     let lastStopReason = null;
     let lastError = null;
     let lastAppliedFingerprint = null;
+    let lastOptionalHelperResult = null;
     const runtimeUnsubscribers = [];
 
     const clone = value => {
@@ -142,6 +143,10 @@
         );
     }
 
+    function helperEnabled() {
+        return getRuntimeConfig()?.client?.helperEnabled === true;
+    }
+
     function requiredModules() {
         return [
             ['scanner.js', QoL.airScanner?.create],
@@ -172,8 +177,62 @@
             cardActivate: config.behavior?.cardActivate,
             scrollBehavior: config.scroll?.behavior,
             searchHandoffEnabled: config.search?.handoffEnabled,
-            airNavEnabled: config.airNavEnabled
+            airNavEnabled: config.airNavEnabled,
+            helperEnabled: config.client?.helperEnabled === true
         });
+    }
+
+    function syncOptionalHelper(reason = 'runtime-sync') {
+        const enabled = helperEnabled();
+        const guard = QoL.airGuard || null;
+
+        if (!enabled) {
+            if (guard?.disable) {
+                try { guard.disable(`launcher-helper-disabled:${reason}`); }
+                catch (_) {}
+            }
+            lastOptionalHelperResult = {
+                configured: false,
+                guardPresent: !!guard,
+                active: false,
+                reason: 'helper-disabled'
+            };
+            return clone(lastOptionalHelperResult);
+        }
+
+        if (!guard?.enable) {
+            lastOptionalHelperResult = {
+                configured: true,
+                guardPresent: false,
+                active: false,
+                reason: 'guard-runtime-not-loaded'
+            };
+            return clone(lastOptionalHelperResult);
+        }
+
+        try {
+            const result = guard.enable(`launcher-start:${reason}`);
+            lastOptionalHelperResult = {
+                configured: true,
+                guardPresent: true,
+                active: true,
+                reason: 'guard-enable-requested',
+                result: clone(result)
+            };
+        } catch (error) {
+            // The Windows helper is optional. A missing/stopped helper must never
+            // prevent browser-native AirNav from starting.
+            lastOptionalHelperResult = {
+                configured: true,
+                guardPresent: true,
+                active: false,
+                reason: 'guard-enable-failed',
+                error: String(error?.message || error)
+            };
+            console.warn(LOG, 'Optional Windows helper could not be enabled; continuing without it.', error);
+        }
+
+        return clone(lastOptionalHelperResult);
     }
 
     function applyRuntimeConfig(reason = 'runtime-sync', force = false) {
@@ -195,6 +254,7 @@
         try { result.searchHandoff = QoL.airNav?.setSearchHandoffEnabled?.(config.search?.handoffEnabled !== false, reason) || null; }
         catch (error) { result.searchHandoff = { error:String(error?.message || error) }; }
         try { QoL.airControlBridge?.reloadSettings?.(`launcher:${reason}`); } catch (_) {}
+        if (started) result.optionalHelper = syncOptionalHelper(reason);
 
         lastAppliedFingerprint = fingerprint;
         return result;
@@ -233,6 +293,30 @@
         };
     }
 
+    function destroyDeferredModules() {
+        // Only the deferred navigation-model cluster is session-owned. Do not
+        // destroy production Profile/Input/Gesture/Universal/ControlBridge runtimes.
+        for (const module of [QoL.airNav,QoL.airModal,QoL.airItemActions,QoL.airScroll,QoL.airGeometry,QoL.airFocus,QoL.airScanner]) {
+            try { module?.destroy?.(); } catch (_) {}
+        }
+    }
+
+    function validateUniversalAdapter(adapter) {
+        if (!adapter) {
+            throw new Error('Universal Input adapter did not start.');
+        }
+
+        let state = null;
+        try { state = adapter.getState?.() || null; }
+        catch (_) {}
+
+        if (state && state.started === false) {
+            throw new Error('Universal Input adapter exists but reports started=false.');
+        }
+
+        return state;
+    }
+
     async function startCoreRuntime(reason = 'automatic') {
         if (started) return getRuntimeHandles();
         if (startingPromise) return startingPromise;
@@ -242,13 +326,20 @@
         if (missing.length) return { started:false, reason:'modules-not-ready', missing, state:getState() };
 
         startingPromise = (async () => {
+            let deferred = null;
             try {
-                const deferred = createDeferredModules();
+                deferred = createDeferredModules();
                 QoL.airNavInput.setDispatcher(event => QoL.airNav.dispatch(event));
-                const adapters = {
-                    universal: QoL.airNavInput.enableAdapter('universal', { profileId:activeProfileId() })
-                };
 
+                const universal = QoL.airNavInput.enableAdapter('universal', {
+                    profileId:activeProfileId()
+                });
+                const universalState = validateUniversalAdapter(universal);
+                const adapters = { universal };
+
+                // Do not publish started=true until the required browser input
+                // adapter has actually started. Failed starts remain retryable by
+                // the supervisor instead of becoming a false-positive running state.
                 started = true;
                 lastStartReason = reason;
                 lastStopReason = null;
@@ -256,14 +347,24 @@
                 subscribeRuntimeChanges();
                 const liveSync = applyRuntimeConfig(`start:${reason}`, true);
 
-                console.log(LOG, 'AirNav runtime started.', { reason, profileId:activeProfileId(), adapters, liveSync });
+                console.log(LOG, 'AirNav runtime started.', {
+                    reason,
+                    profileId:activeProfileId(),
+                    adapters,
+                    universalState,
+                    liveSync
+                });
                 return getRuntimeHandles(adapters, deferred);
             } catch (error) {
                 lastError = error;
                 started = false;
+                unsubscribeRuntimeChanges();
                 try { QoL.airNavInput?.disableAll?.(); } catch (_) {}
                 try { QoL.airNavInput?.setDispatcher?.(null); } catch (_) {}
-                console.error(LOG, 'AirNav runtime start failed.', error);
+                destroyDeferredModules();
+                try { QoL.airGuard?.disable?.(`launcher-start-failed:${reason}`); } catch (_) {}
+                lastAppliedFingerprint = null;
+                console.error(LOG, 'AirNav runtime start failed; supervisor will retry.', error);
                 return { started:false, reason:'startup-failed', error, state:getState() };
             } finally {
                 startingPromise = null;
@@ -280,14 +381,13 @@
             }
         } catch (_) {}
         try { QoL.airGuard?.disable?.(`launcher-stop:${reason}`); } catch (_) {}
+        lastOptionalHelperResult = helperEnabled()
+            ? { configured:true, guardPresent:!!QoL.airGuard, active:false, reason:'runtime-stopped' }
+            : { configured:false, guardPresent:!!QoL.airGuard, active:false, reason:'helper-disabled' };
         try { QoL.airNavInput?.disableAll?.(); } catch (_) {}
         try { QoL.airNavInput?.setDispatcher?.(null); } catch (_) {}
 
-        // Only the deferred navigation-model cluster is session-owned. Do not
-        // destroy production Profile/Input/Gesture/Universal/ControlBridge runtimes.
-        for (const module of [QoL.airNav,QoL.airModal,QoL.airItemActions,QoL.airScroll,QoL.airGeometry,QoL.airFocus,QoL.airScanner]) {
-            try { module?.destroy?.(); } catch (_) {}
-        }
+        destroyDeferredModules();
         try { QoL.airControlBridge?.exitNativeSurface?.(); } catch (_) {}
         try { QoL.airControlBridge?.clearSavedText?.(); } catch (_) {}
 
@@ -419,6 +519,7 @@
             controller:QoL.airNav, controlBridge:QoL.airControlBridge,
             input:QoL.airNavInput, universalInput:QoL.airNavUniversalInput,
             profileRuntime:QoL.profileRuntime, recorder:QoL.recordInputRuntime,
+            optionalHelper:clone(lastOptionalHelperResult),
             adapters, deferred, runtimeConfig:clone(getRuntimeConfig())
         };
     }
@@ -430,6 +531,9 @@
             sessionOverride, persistentEnabled:persistentEnabled(),
             effectiveEnabled:effectiveEnabled(), activeProfileId:activeProfileId(),
             runtimeSource:getRuntimeConfig()?.source || null,
+            helperEnabled:helperEnabled(),
+            helperRequired:false,
+            optionalHelper:clone(lastOptionalHelperResult),
             lastStartReason, lastStopReason,
             lastError:lastError ? String(lastError?.message || lastError) : null,
             missingCoreModules:getMissingCoreModules(), route:location.hash,
@@ -446,6 +550,10 @@
             defaultClientEnabled:false, sessionOnlyToggle:true,
             runtimeSettingsOwnedHydration:true, profileRuntimeOwnedBindings:true,
             destroysProductionSubsystemsOnStop:false,
+            validatesUniversalAdapterStartup:true,
+            retriesFailedStartup:true,
+            windowsHelperOptional:true,
+            windowsHelperRequired:false,
             deferredNavigationCluster:['scanner','geometry','focus','scroll','page-form-navigation','item-actions','controller'],
             state:getState()
         };
@@ -493,14 +601,17 @@
         automaticStartup:true, loginSafeBootstrap:true,
         runtimeSettingsOwnedHydration:true, clientLocalEnrollment:true,
         defaultClientEnabled:false, clientStorageKey:ENROLLMENT_KEY,
-        temporaryToggleButton:false
+        temporaryToggleButton:false,
+        windowsHelperOptional:true,
+        windowsHelperRequired:false
     });
 
     function begin() {
         startSupervisor();
         console.log(LOG, 'Production client-local launcher registered.', {
             version:VERSION, persistentEnabled:persistentEnabled(),
-            sessionOverride, missing:getMissingCoreModules()
+            sessionOverride, missing:getMissingCoreModules(),
+            windowsHelperOptional:true
         });
     }
 
