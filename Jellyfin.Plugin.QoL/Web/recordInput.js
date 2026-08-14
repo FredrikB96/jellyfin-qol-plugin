@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.recordInputRuntime?.version === '1.1.0-commit') return;
+    if (QoL.recordInputRuntime?.version === '1.2.0-takeover') return;
 
-    const VERSION = '1.1.0-commit';
+    const VERSION = '1.2.0-takeover';
     const LOG = '[JellyfinQoL.RecordInput]';
     const listeners = new Map();
     const VALID_RESOLUTIONS = new Set(['cancel', 'replace', 'keep-both']);
@@ -17,6 +17,10 @@
 
     function now() {
         return typeof performance?.now === 'function' ? performance.now() : Date.now();
+    }
+
+    function isTakeoverActive() {
+        return !!QoL.recordInputRuntime && QoL.airKeybindRecorder === QoL.recordInputRuntime;
     }
 
     function makeIdleState(lastResult = null) {
@@ -69,7 +73,10 @@
     }
 
     function getState() {
-        return clone(state);
+        return {
+            ...clone(state),
+            takeoverActive: isTakeoverActive()
+        };
     }
 
     function getProfileRuntime() {
@@ -341,7 +348,8 @@
     }
 
     function compatibilityReport() {
-        const legacy = QoL.airKeybindRecorder || null;
+        const active = isTakeoverActive();
+        const legacy = QoL.airKeybindRecorder && !active ? QoL.airKeybindRecorder : null;
         const registry = getInputRegistry();
         const runtime = getProfileRuntime();
         const captureReady =
@@ -360,7 +368,8 @@
             captureReady,
             commitReady,
             persistenceReady: typeof runtime?.flushPersistence === 'function',
-            takeoverActive: false,
+            takeoverActive: active,
+            passiveComparisonMode: !!legacy,
             legacyPresent: !!legacy,
             legacyVersion: legacy?.VERSION || legacy?.version || null,
             inputRegistryPresent: !!registry,
@@ -392,5 +401,14 @@
         destroy
     });
 
-    console.log(LOG, 'Production record-input commit runtime registered.', compatibilityReport());
+    QoL.recordInputCompatibility = QoL.recordInputRuntime;
+
+    if (!QoL.airKeybindRecorder) {
+        QoL.airKeybindRecorder = QoL.recordInputRuntime;
+        console.log(LOG, 'Production recorder installed as JellyfinQoL.airKeybindRecorder.');
+    } else if (QoL.airKeybindRecorder !== QoL.recordInputRuntime) {
+        console.log(LOG, 'Prototype recorder detected; production recorder is passive until the old recorder script is disabled.');
+    }
+
+    console.log(LOG, 'Production record-input takeover runtime registered.', compatibilityReport());
 })();
