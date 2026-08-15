@@ -14,7 +14,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.2';
+  const VERSION = '1.0.3';
   const LEGACY_VERSION = '7.4B';
   const LOG = '[JellyfinQoL.NavigationGeometry]';
 
@@ -413,8 +413,25 @@
           ? preferredX
           : currentRect.centerX;
 
+        // Within PageForm, vertical alignment means that the preferred X lies
+        // anywhere inside the candidate's horizontal span. Measuring against
+        // the candidate centre unfairly penalizes wide form rows (especially
+        // checkbox labels) and can make a distant button beat the immediately
+        // adjacent full-width control. Keep the established centre-distance
+        // behavior for every other navigation surface.
+        const pageFormVerticalSpan =
+          !horizontal &&
+          currentItem.metadata?.pageFormControl === true &&
+          candidate.metadata?.pageFormControl === true;
+
         const secondaryAxisDistance = horizontal
           ? Math.abs(candidateRect.centerY - currentRect.centerY)
+          : pageFormVerticalSpan
+          ? Math.max(
+              0,
+              candidateRect.left - verticalAnchorX,
+              verticalAnchorX - candidateRect.right
+            )
           : Math.abs(candidateRect.centerX - verticalAnchorX);
 
         const overlapRatio = horizontal
