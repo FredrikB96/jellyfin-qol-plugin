@@ -36,6 +36,7 @@ public sealed class ClientResourcesController : ControllerBase
             ["navigationGeometry.js"] = "Jellyfin.Plugin.QoL.Web.navigationGeometry.js",
             ["navigationScroll.js"] = "Jellyfin.Plugin.QoL.Web.navigationScroll.js",
             ["navigationItemActions.js"] = "Jellyfin.Plugin.QoL.Web.navigationItemActions.js",
+            ["navigationModal.js"] = "Jellyfin.Plugin.QoL.Web.navigationModal.js",
             ["navigationController.js"] = "Jellyfin.Plugin.QoL.Web.navigationController.js",
             ["launcherRuntime.js"] = "Jellyfin.Plugin.QoL.Web.launcherRuntime.js"
         };
@@ -113,9 +114,10 @@ public sealed class ClientResourcesController : ControllerBase
             var navigationGeometryStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationGeometry.js"]);
             var navigationScrollStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationScroll.js"]);
             var navigationItemActionsStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationItemActions.js"]);
+            var navigationModalStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationModal.js"]);
             var navigationControllerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationController.js"]);
             var launcherRuntimeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["launcherRuntime.js"]);
-            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || guardManagerStream is null || navigationScannerStream is null || navigationFocusStream is null || navigationGeometryStream is null || navigationScrollStream is null || navigationItemActionsStream is null || navigationControllerStream is null || launcherRuntimeStream is null)
+            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || guardManagerStream is null || navigationScannerStream is null || navigationFocusStream is null || navigationGeometryStream is null || navigationScrollStream is null || navigationItemActionsStream is null || navigationModalStream is null || navigationControllerStream is null || launcherRuntimeStream is null)
             {
                 stream.Dispose();
                 inputRegistryStream?.Dispose();
@@ -129,6 +131,7 @@ public sealed class ClientResourcesController : ControllerBase
                 navigationGeometryStream?.Dispose();
                 navigationScrollStream?.Dispose();
                 navigationItemActionsStream?.Dispose();
+                navigationModalStream?.Dispose();
                 navigationControllerStream?.Dispose();
                 launcherRuntimeStream?.Dispose();
                 return NotFound();
@@ -146,6 +149,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (navigationGeometryStream)
             using (navigationScrollStream)
             using (navigationItemActionsStream)
+            using (navigationModalStream)
             using (navigationControllerStream)
             using (launcherRuntimeStream)
             using (var bootstrapReader = new StreamReader(stream))
@@ -160,6 +164,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (var navigationGeometryReader = new StreamReader(navigationGeometryStream))
             using (var navigationScrollReader = new StreamReader(navigationScrollStream))
             using (var navigationItemActionsReader = new StreamReader(navigationItemActionsStream))
+            using (var navigationModalReader = new StreamReader(navigationModalStream))
             using (var navigationControllerReader = new StreamReader(navigationControllerStream))
             using (var launcherRuntimeReader = new StreamReader(launcherRuntimeStream))
             {
@@ -174,6 +179,7 @@ public sealed class ClientResourcesController : ControllerBase
                 var navigationGeometry = navigationGeometryReader.ReadToEnd();
                 var navigationScroll = navigationScrollReader.ReadToEnd();
                 var navigationItemActions = navigationItemActionsReader.ReadToEnd();
+                var navigationModal = navigationModalReader.ReadToEnd();
                 var navigationController = navigationControllerReader.ReadToEnd();
                 var bootstrap = bootstrapReader.ReadToEnd();
                 var launcherRuntime = launcherRuntimeReader.ReadToEnd();
@@ -189,6 +195,7 @@ public sealed class ClientResourcesController : ControllerBase
                     navigationGeometry + "\n" +
                     navigationScroll + "\n" +
                     navigationItemActions + "\n" +
+                    navigationModal + "\n" +
                     navigationController + "\n" +
                     bootstrap + "\n" +
                     launcherRuntime + RecordInputAutoload,
@@ -199,4 +206,3 @@ public sealed class ClientResourcesController : ControllerBase
         return File(stream, "text/javascript; charset=utf-8");
     }
 }
-

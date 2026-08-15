@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.5';
+  const VERSION = '1.0.6';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -3071,6 +3071,48 @@
         candidates.push(...this.discoverGenericOverlayRoots());
         candidates = this.dedupeElements(candidates)
           .filter(element => !this.isPassiveOverlay(element));
+
+        // Generic overlay discovery may add an outer shell after a more
+        // specific modal descendant already matched modalSelector. Prefer the
+        // rendered descendant that actually owns the controls. Keep an
+        // explicit aria-modal ancestor unless the descendant is explicit too.
+        // This is especially important for Jellyfin's native action sheets:
+        // .dialogContainer is only an overlay shell, while its .actionSheet
+        // child owns the actionable menu buttons.
+        const matchedModalRoots =
+          candidates.filter(element =>
+            element?.matches?.(
+              this.cfg.modalSelector
+            )
+          );
+
+        candidates =
+          candidates.filter(element =>
+            !matchedModalRoots.some(other => {
+              if (
+                other === element ||
+                !element.contains?.(other) ||
+                !this.isRendered(other)
+              ) {
+                return false;
+              }
+
+              const elementExplicit =
+                element.matches?.(
+                  '[role="dialog"], [aria-modal="true"]'
+                );
+
+              const otherExplicit =
+                other.matches?.(
+                  '[role="dialog"], [aria-modal="true"]'
+                );
+
+              return (
+                !elementExplicit ||
+                otherExplicit
+              );
+            })
+          );
 
         // Prefer the topmost visible modal when several dialog shells remain
         // mounted underneath it. z-index is used as a hint, then DOM order.
