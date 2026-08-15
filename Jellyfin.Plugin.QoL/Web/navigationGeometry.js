@@ -14,7 +14,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const LEGACY_VERSION = '7.4B';
   const LOG = '[JellyfinQoL.NavigationGeometry]';
 
@@ -593,10 +593,14 @@
       }
 
       result(moved, reason, detail = {}) {
+        // The resolver detail contains provisional moved/reason fields used
+        // during candidate scoring. The final move outcome is authoritative
+        // and must win so Controller/UniversalInput consume browser-native
+        // arrow defaults after a logical selection actually changes.
         return {
+          ...detail,
           moved: !!moved,
-          reason,
-          ...detail
+          reason
         };
       }
 
