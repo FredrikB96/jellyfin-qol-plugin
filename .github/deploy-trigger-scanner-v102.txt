@@ -1,0 +1,1 @@
+Temporary deploy trigger for Navigation Scanner v1.0.2.
