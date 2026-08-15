@@ -27,7 +27,6 @@ jobs:
           cat Jellyfin.Plugin.QoL/Web/.navigationScanner-import/part* > /tmp/navigationScanner.js.gz.b64
           base64 -d /tmp/navigationScanner.js.gz.b64 > /tmp/navigationScanner.js.gz
           gzip -dc /tmp/navigationScanner.js.gz > Jellyfin.Plugin.QoL/Web/navigationScanner.js
-          node --check Jellyfin.Plugin.QoL/Web/navigationScanner.js
           test "$(git hash-object Jellyfin.Plugin.QoL/Web/navigationScanner.js)" = "f9f15e277c3e8bc0ec82f32a31915759dffeda50"
 
       - name: Commit source
