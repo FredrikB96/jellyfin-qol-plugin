@@ -32,6 +32,7 @@ public sealed class ClientResourcesController : ControllerBase
             ["controlBridge.js"] = "Jellyfin.Plugin.QoL.Web.controlBridge.js",
             ["guardManager.js"] = "Jellyfin.Plugin.QoL.Web.guardManager.js",
             ["navigationScanner.js"] = "Jellyfin.Plugin.QoL.Web.navigationScanner.js",
+            ["navigationGeometry.js"] = "Jellyfin.Plugin.QoL.Web.navigationGeometry.js",
             ["launcherRuntime.js"] = "Jellyfin.Plugin.QoL.Web.launcherRuntime.js"
         };
 
@@ -104,8 +105,9 @@ public sealed class ClientResourcesController : ControllerBase
             var controlBridgeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["controlBridge.js"]);
             var guardManagerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["guardManager.js"]);
             var navigationScannerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationScanner.js"]);
+            var navigationGeometryStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationGeometry.js"]);
             var launcherRuntimeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["launcherRuntime.js"]);
-            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || guardManagerStream is null || navigationScannerStream is null || launcherRuntimeStream is null)
+            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || guardManagerStream is null || navigationScannerStream is null || navigationGeometryStream is null || launcherRuntimeStream is null)
             {
                 stream.Dispose();
                 inputRegistryStream?.Dispose();
@@ -115,6 +117,7 @@ public sealed class ClientResourcesController : ControllerBase
                 controlBridgeStream?.Dispose();
                 guardManagerStream?.Dispose();
                 navigationScannerStream?.Dispose();
+                navigationGeometryStream?.Dispose();
                 launcherRuntimeStream?.Dispose();
                 return NotFound();
             }
@@ -127,6 +130,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (controlBridgeStream)
             using (guardManagerStream)
             using (navigationScannerStream)
+            using (navigationGeometryStream)
             using (launcherRuntimeStream)
             using (var bootstrapReader = new StreamReader(stream))
             using (var inputRegistryReader = new StreamReader(inputRegistryStream))
@@ -136,6 +140,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (var controlBridgeReader = new StreamReader(controlBridgeStream))
             using (var guardManagerReader = new StreamReader(guardManagerStream))
             using (var navigationScannerReader = new StreamReader(navigationScannerStream))
+            using (var navigationGeometryReader = new StreamReader(navigationGeometryStream))
             using (var launcherRuntimeReader = new StreamReader(launcherRuntimeStream))
             {
                 var inputRegistry = inputRegistryReader.ReadToEnd();
@@ -145,6 +150,7 @@ public sealed class ClientResourcesController : ControllerBase
                 var controlBridge = controlBridgeReader.ReadToEnd();
                 var guardManager = guardManagerReader.ReadToEnd();
                 var navigationScanner = navigationScannerReader.ReadToEnd();
+                var navigationGeometry = navigationGeometryReader.ReadToEnd();
                 var bootstrap = bootstrapReader.ReadToEnd();
                 var launcherRuntime = launcherRuntimeReader.ReadToEnd();
                 return Content(
@@ -155,6 +161,7 @@ public sealed class ClientResourcesController : ControllerBase
                     controlBridge + "\n" +
                     guardManager + "\n" +
                     navigationScanner + "\n" +
+                    navigationGeometry + "\n" +
                     bootstrap + "\n" +
                     launcherRuntime + RecordInputAutoload,
                     "text/javascript; charset=utf-8");
