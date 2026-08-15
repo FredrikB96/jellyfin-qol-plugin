@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -6574,32 +6574,72 @@
         return candidates;
       }
 
+      modelCollectionValues(value, shape = 'item') {
+        if (value == null) return [];
+        if (Array.isArray(value)) return value;
+        if (value instanceof Map || value instanceof Set) return Array.from(value.values());
+        if (typeof value !== 'object') return [];
+
+        try {
+          if (typeof value[Symbol.iterator] === 'function') return Array.from(value);
+        } catch (_) {}
+
+        // Compatibility data can expose collections either as arrays or keyed
+        // objects. Preserve an object that already looks like one concrete model
+        // node; otherwise treat a plain object as a keyed collection.
+        const looksSingle = (() => {
+          if (shape === 'context') {
+            return 'items' in value || 'ownerItemKey' in value ||
+              'entryPolicy' in value || 'restorePolicy' in value;
+          }
+          if (shape === 'section') {
+            return 'items' in value && ('id' in value || 'kind' in value || 'root' in value);
+          }
+          if (shape === 'surface') {
+            return 'sections' in value && ('id' in value || 'kind' in value || 'root' in value);
+          }
+          return 'element' in value || 'activationTarget' in value ||
+            'key' in value || 'instanceKey' in value;
+        })();
+
+        return looksSingle ? [value] : Object.values(value).filter(Boolean);
+      }
+
       emittedElementSet(model) {
         const set = new Set();
+        const visitedItems = new Set();
         const visitedSections = new Set();
         const addItem = item => {
+          if (!item || visitedItems.has(item)) return;
+          visitedItems.add(item);
           if (item?.element) set.add(item.element);
           if (item?.activationTarget) set.add(item.activationTarget);
-          for (const action of item?.actions || []) if (action?.element) set.add(action.element);
-          for (const control of item?.controls || []) if (control?.element) set.add(control.element);
-          for (const child of item?.childContexts || []) {
-            for (const childItem of child?.items || []) addItem(childItem);
+          for (const action of this.modelCollectionValues(item?.actions, 'item')) {
+            if (action?.element) set.add(action.element);
+            if (action?.activationTarget) set.add(action.activationTarget);
+          }
+          for (const control of this.modelCollectionValues(item?.controls, 'item')) {
+            if (control?.element) set.add(control.element);
+            if (control?.activationTarget) set.add(control.activationTarget);
+          }
+          for (const child of this.modelCollectionValues(item?.childContexts, 'context')) {
+            for (const childItem of this.modelCollectionValues(child?.items, 'item')) addItem(childItem);
           }
         };
         const addSection = section => {
           if (!section || visitedSections.has(section)) return;
           visitedSections.add(section);
-          for (const item of section.items || []) addItem(item);
+          for (const item of this.modelCollectionValues(section?.items, 'item')) addItem(item);
         };
 
         if (model?.header) addSection(model.header);
-        for (const section of model?.sections || []) addSection(section);
-        for (const section of model?.modal?.sections || []) addSection(section);
+        for (const section of this.modelCollectionValues(model?.sections, 'section')) addSection(section);
+        for (const section of this.modelCollectionValues(model?.modal?.sections, 'section')) addSection(section);
         // Scanner v1 production-only semantic controls live on Surface.sections
         // during the compatibility phase and intentionally do not appear in the
         // legacy top-level projection. Audit must count those as emitted too.
-        for (const surface of model?.surfaces || []) {
-          for (const section of surface?.sections || []) addSection(section);
+        for (const surface of this.modelCollectionValues(model?.surfaces, 'surface')) {
+          for (const section of this.modelCollectionValues(surface?.sections, 'section')) addSection(section);
         }
         return set;
       }
@@ -6613,20 +6653,20 @@
           objects.add(item);
           if (item.key) keys.add(item.key);
           else keys.add(`object:${objects.size}`);
-          for (const child of item?.childContexts || []) {
-            for (const childItem of child?.items || []) addItem(childItem);
+          for (const child of this.modelCollectionValues(item?.childContexts, 'context')) {
+            for (const childItem of this.modelCollectionValues(child?.items, 'item')) addItem(childItem);
           }
         };
         const addSection = section => {
           if (!section || visitedSections.has(section)) return;
           visitedSections.add(section);
-          for (const item of section.items || []) addItem(item);
+          for (const item of this.modelCollectionValues(section?.items, 'item')) addItem(item);
         };
         if (model?.header) addSection(model.header);
-        for (const section of model?.sections || []) addSection(section);
-        for (const section of model?.modal?.sections || []) addSection(section);
-        for (const surface of model?.surfaces || []) {
-          for (const section of surface?.sections || []) addSection(section);
+        for (const section of this.modelCollectionValues(model?.sections, 'section')) addSection(section);
+        for (const section of this.modelCollectionValues(model?.modal?.sections, 'section')) addSection(section);
+        for (const surface of this.modelCollectionValues(model?.surfaces, 'surface')) {
+          for (const section of this.modelCollectionValues(surface?.sections, 'section')) addSection(section);
         }
         return keys.size;
       }
