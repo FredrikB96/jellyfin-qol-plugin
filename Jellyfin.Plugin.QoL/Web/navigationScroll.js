@@ -18,7 +18,7 @@
 //   JellyfinQoL.airScanner
 //   JellyfinQoL.airFocus
 
-// Jellyfin QoL - Production Navigation ScrollManager v1.0.0
+// Jellyfin QoL - Production Navigation ScrollManager v1.0.1
 // Legacy compatibility: Phase 7.4B6 Header-to-Top Snap.
 //
 // The production API remains passive while the injected ScrollManager owns
@@ -27,7 +27,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const LEGACY_VERSION = '7.4B6';
   const LOG = '[JellyfinQoL.NavigationScroll]';
 
@@ -68,11 +68,14 @@
       verticalRestTopRatio: 0.50,
       verticalRestBottomRatio: 0.50,
 
-      // Vertical page movement is intentionally immediate. The user may keep
-      // smooth horizontal row animation, but a delayed window.scrollTo()
-      // leaves Focus several rows ahead of the visible page when navigating
-      // quickly with a remote/keyboard.
-      verticalBehavior: 'auto',
+      // Use a short, AirNav-owned animation on content-heavy Home/Library
+      // routes. Unlike native browser smooth scrolling, this can be cancelled
+      // and retargeted immediately when the next remote/key press arrives, so
+      // logical Focus never gets trapped behind an old scroll destination.
+      verticalBehavior: 'managed-smooth',
+      verticalSmoothDurationMs: 180,
+      verticalSmoothMinDistancePx: 24,
+      verticalSmoothSemanticHints: ['home', 'library'],
 
       // Header/tabs are the top-level navigation surface. Whenever the user
       // intentionally moves selection into the header, return the page content
@@ -136,6 +139,8 @@
         this.settleRaf = null;
         this.settleProbeToken = 0;
         this.revealToken = 0;
+        this.verticalAnimationRaf = null;
+        this.verticalAnimationToken = 0;
         this.lastReveal = null;
 
         this.start();
@@ -169,6 +174,7 @@
 
       destroy() {
         this.revealToken += 1;
+        this.cancelVerticalAnimation();
 
         if (this.unsubscribeSelection) {
           try { this.unsubscribeSelection(); } catch (_) {}
@@ -247,6 +253,11 @@
         if (!model || model.activeSurfaceHint !== 'page') {
           return this.result(false, 'surface-not-page');
         }
+
+        // A real new selection owns the viewport immediately. Stop any prior
+        // tween before reading geometry so rapid row changes are calculated
+        // from the page's current visual position, not an obsolete target.
+        this.cancelVerticalAnimation();
 
         const match = this.findItemByKey(model, itemKey);
         if (!match) {
@@ -338,9 +349,9 @@
               ? { ...liveRect }
               : null,
 
-          // Geometry immediately after the vertical scroll command. With the
-          // default immediate vertical snap, this should already be inside the
-          // visible viewport and is the quickest way to detect a wrong scroller.
+          // Geometry immediately after the vertical scroll command. Managed
+          // vertical easing may still be in flight; the settle probe refreshes
+          // Scanner geometry once the visual position becomes stable.
           postScrollRect:
             postScrollRect
               ? { ...postScrollRect }
@@ -601,9 +612,9 @@
           );
         }
 
-        // Header transitions are immediate for the same reason as vertical
-        // AirNav row snaps: logical focus and visible page position should not
-        // drift apart during an asynchronous browser smooth scroll.
+        // Header transitions remain immediate: the header is a fixed top-level
+        // destination rather than another content row.
+        this.cancelVerticalAnimation();
         root.scrollTop = 0;
 
         const actual =
@@ -1061,11 +1072,16 @@
             );
 
           const verticalBehavior =
-            this.cfg.verticalBehavior === 'smooth'
-              ? 'smooth'
-              : 'auto';
+            this.resolveVerticalBehavior(
+              desired - from
+            );
 
-          if (verticalBehavior === 'smooth') {
+          if (verticalBehavior === 'managed-smooth') {
+            this.animateVerticalScroll(
+              root,
+              desired
+            );
+          } else if (verticalBehavior === 'smooth') {
             try {
               window.scrollTo({
                 top: desired,
@@ -1075,9 +1091,7 @@
               root.scrollTop = desired;
             }
           } else {
-            // Direct assignment is intentional. Browser smooth scrolling is
-            // asynchronous and can be cancelled/re-targeted by subsequent
-            // navigation, leaving logical Focus outside the viewport.
+            this.cancelVerticalAnimation();
             root.scrollTop = desired;
           }
 
@@ -1085,7 +1099,7 @@
             root.scrollTop;
 
           return this.result(
-            Math.abs(actual - from) >= 1,
+            Math.abs(desired - from) >= 1,
             reason,
             {
               scroller: 'document',
@@ -1096,7 +1110,10 @@
               max,
               requestedDelta: delta,
               appliedDelta:
-                actual - from,
+                desired - from,
+              animationPending:
+                verticalBehavior ===
+                'managed-smooth',
               ...meta
             }
           );
@@ -1120,11 +1137,16 @@
           );
 
         const verticalBehavior =
-          this.cfg.verticalBehavior === 'smooth'
-            ? 'smooth'
-            : 'auto';
+          this.resolveVerticalBehavior(
+            desired - from
+          );
 
-        if (verticalBehavior === 'smooth') {
+        if (verticalBehavior === 'managed-smooth') {
+          this.animateVerticalScroll(
+            scroller,
+            desired
+          );
+        } else if (verticalBehavior === 'smooth') {
           try {
             scroller.scrollTo({
               top: desired,
@@ -1134,6 +1156,7 @@
             scroller.scrollTop = desired;
           }
         } else {
+          this.cancelVerticalAnimation();
           scroller.scrollTop = desired;
         }
 
@@ -1141,7 +1164,7 @@
           scroller.scrollTop;
 
         return this.result(
-          Math.abs(actual - from) >= 1,
+          Math.abs(desired - from) >= 1,
           reason,
           {
             scroller:
@@ -1155,10 +1178,207 @@
             max,
             requestedDelta: delta,
             appliedDelta:
-              actual - from,
+              desired - from,
+            animationPending:
+              verticalBehavior ===
+              'managed-smooth',
             ...meta
           }
         );
+      }
+
+      resolveVerticalBehavior(delta) {
+        const configured =
+          String(
+            this.cfg.verticalBehavior ||
+            'auto'
+          ).toLowerCase();
+
+        if (configured === 'smooth') {
+          return 'smooth';
+        }
+
+        if (configured !== 'managed-smooth') {
+          return 'auto';
+        }
+
+        const minimumDistance =
+          Math.max(
+            0,
+            Number(
+              this.cfg
+                .verticalSmoothMinDistancePx
+            ) || 0
+          );
+
+        if (
+          Math.abs(delta) < minimumDistance ||
+          this.prefersReducedMotion() ||
+          !this.isManagedVerticalRoute()
+        ) {
+          return 'auto';
+        }
+
+        return 'managed-smooth';
+      }
+
+      isManagedVerticalRoute() {
+        const model =
+          QoL.airScanner?.getModel?.();
+
+        let semanticHint =
+          String(
+            model?.routeInfo
+              ?.semanticHint || ''
+          ).toLowerCase();
+
+        const route =
+          String(
+            model?.route ||
+            location.hash || ''
+          ).toLowerCase();
+
+        // Scanner owns the primary route classification. These fallbacks also
+        // cover generic Jellyfin library routes used by some server versions.
+        if (!semanticHint) {
+          if (/\/(?:home)(?:[.?/#]|$)/.test(route)) {
+            semanticHint = 'home';
+          } else if (
+            /\/(?:movies|tv|library|list|music|books|folders|collections)(?:[.?/#]|$)/
+              .test(route)
+          ) {
+            semanticHint = 'library';
+          }
+        }
+
+        const allowed =
+          Array.isArray(
+            this.cfg
+              .verticalSmoothSemanticHints
+          )
+            ? this.cfg
+                .verticalSmoothSemanticHints
+                .map(value =>
+                  String(value)
+                    .toLowerCase()
+                )
+            : ['home', 'library'];
+
+        return allowed.includes(
+          semanticHint
+        );
+      }
+
+      prefersReducedMotion() {
+        try {
+          return !!window.matchMedia?.(
+            '(prefers-reduced-motion: reduce)'
+          ).matches;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      animateVerticalScroll(scroller, desired) {
+        this.cancelVerticalAnimation();
+
+        if (!scroller) return;
+
+        const from =
+          Number(scroller.scrollTop) || 0;
+
+        const distance =
+          desired - from;
+
+        if (Math.abs(distance) < 1) {
+          scroller.scrollTop = desired;
+          return;
+        }
+
+        const maximumDuration =
+          this.clamp(
+            Number(
+              this.cfg
+                .verticalSmoothDurationMs
+            ) || 180,
+            100,
+            300
+          );
+
+        // Shorter row corrections should feel light, while a full shelf jump
+        // gets the configured maximum duration.
+        const distanceScale =
+          this.clamp(
+            Math.abs(distance) / 420,
+            0.72,
+            1
+          );
+
+        const duration =
+          maximumDuration *
+          distanceScale;
+
+        const startedAt =
+          performance.now();
+
+        const token =
+          ++this.verticalAnimationToken;
+
+        const step = now => {
+          if (
+            token !==
+            this.verticalAnimationToken
+          ) {
+            return;
+          }
+
+          const progress =
+            this.clamp(
+              (now - startedAt) /
+                duration,
+              0,
+              1
+            );
+
+          // Ease-out quadratic: responsive on the first frame, gentle at rest.
+          const eased =
+            1 -
+            Math.pow(
+              1 - progress,
+              2
+            );
+
+          scroller.scrollTop =
+            from +
+            distance * eased;
+
+          if (progress < 1) {
+            this.verticalAnimationRaf =
+              requestAnimationFrame(
+                step
+              );
+            return;
+          }
+
+          scroller.scrollTop = desired;
+          this.verticalAnimationRaf = null;
+        };
+
+        this.verticalAnimationRaf =
+          requestAnimationFrame(step);
+      }
+
+      cancelVerticalAnimation() {
+        this.verticalAnimationToken += 1;
+
+        if (
+          this.verticalAnimationRaf != null
+        ) {
+          cancelAnimationFrame(
+            this.verticalAnimationRaf
+          );
+          this.verticalAnimationRaf = null;
+        }
       }
 
       findVerticalScrollContainer(element) {
@@ -1494,6 +1714,16 @@
           verticalSnap: {
             behavior:
               this.cfg.verticalBehavior,
+            activeBehavior:
+              this.resolveVerticalBehavior(
+                Number.MAX_SAFE_INTEGER
+              ),
+            smoothDurationMs:
+              this.cfg
+                .verticalSmoothDurationMs,
+            smoothSemanticHints:
+              this.cfg
+                .verticalSmoothSemanticHints,
             mode: 'center-preferred',
             triggerTop:
               this.cfg.verticalTriggerTopRatio,
