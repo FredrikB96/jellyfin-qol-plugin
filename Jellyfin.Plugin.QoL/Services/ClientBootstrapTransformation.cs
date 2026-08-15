@@ -60,6 +60,16 @@ public static class ClientBootstrapTransformation
     public static string TransformIndexHtml(ClientBootstrapTransformationPayload? payload)
     {
         var contents = payload?.Contents ?? string.Empty;
+
+        // Defense in depth: never append HTML markup to a JavaScript or other
+        // non-document response even if a host plugin calls this callback for
+        // an unexpected filename.
+        var bodyIndex = contents.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+        if (bodyIndex < 0)
+        {
+            return contents;
+        }
+
         if (contents.Contains(BeginMarker, StringComparison.Ordinal) ||
             contents.Contains(HostAttribute, StringComparison.Ordinal))
         {
@@ -81,9 +91,6 @@ public static class ClientBootstrapTransformation
             EndMarker,
             Environment.NewLine);
 
-        var bodyIndex = contents.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-        return bodyIndex >= 0
-            ? contents.Insert(bodyIndex, block)
-            : string.Concat(contents, block);
+        return contents.Insert(bodyIndex, block);
     }
 }
