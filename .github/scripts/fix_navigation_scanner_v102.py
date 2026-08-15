@@ -1,0 +1,120 @@
+from pathlib import Path
+
+path = Path('Jellyfin.Plugin.QoL/Web/navigationScanner.js')
+text = path.read_text(encoding='utf-8')
+
+old_version = "const VERSION = '1.0.1';"
+if text.count(old_version) != 1:
+    raise SystemExit(f'Expected exactly one {old_version!r}, found {text.count(old_version)}')
+text = text.replace(old_version, "const VERSION = '1.0.2';", 1)
+
+start_marker = '      emittedElementSet(model) {'
+end_marker = '      audit() {'
+start = text.find(start_marker)
+end = text.find(end_marker, start)
+if start < 0 or end < 0:
+    raise SystemExit('Could not locate emitted traversal block')
+if text.find(start_marker, start + 1) != -1:
+    raise SystemExit('Multiple emittedElementSet blocks found')
+
+replacement = r'''      modelCollectionValues(value, shape = 'item') {
+        if (value == null) return [];
+        if (Array.isArray(value)) return value;
+        if (value instanceof Map || value instanceof Set) return Array.from(value.values());
+        if (typeof value !== 'object') return [];
+
+        try {
+          if (typeof value[Symbol.iterator] === 'function') return Array.from(value);
+        } catch (_) {}
+
+        // Compatibility data can expose collections either as arrays or keyed
+        // objects. Preserve an object that already looks like one concrete model
+        // node; otherwise treat a plain object as a keyed collection.
+        const looksSingle = (() => {
+          if (shape === 'context') {
+            return 'items' in value || 'ownerItemKey' in value ||
+              'entryPolicy' in value || 'restorePolicy' in value;
+          }
+          if (shape === 'section') {
+            return 'items' in value && ('id' in value || 'kind' in value || 'root' in value);
+          }
+          if (shape === 'surface') {
+            return 'sections' in value && ('id' in value || 'kind' in value || 'root' in value);
+          }
+          return 'element' in value || 'activationTarget' in value ||
+            'key' in value || 'instanceKey' in value;
+        })();
+
+        return looksSingle ? [value] : Object.values(value).filter(Boolean);
+      }
+
+      emittedElementSet(model) {
+        const set = new Set();
+        const visitedItems = new Set();
+        const visitedSections = new Set();
+        const addItem = item => {
+          if (!item || visitedItems.has(item)) return;
+          visitedItems.add(item);
+          if (item?.element) set.add(item.element);
+          if (item?.activationTarget) set.add(item.activationTarget);
+          for (const action of this.modelCollectionValues(item?.actions, 'item')) {
+            if (action?.element) set.add(action.element);
+            if (action?.activationTarget) set.add(action.activationTarget);
+          }
+          for (const control of this.modelCollectionValues(item?.controls, 'item')) {
+            if (control?.element) set.add(control.element);
+            if (control?.activationTarget) set.add(control.activationTarget);
+          }
+          for (const child of this.modelCollectionValues(item?.childContexts, 'context')) {
+            for (const childItem of this.modelCollectionValues(child?.items, 'item')) addItem(childItem);
+          }
+        };
+        const addSection = section => {
+          if (!section || visitedSections.has(section)) return;
+          visitedSections.add(section);
+          for (const item of this.modelCollectionValues(section?.items, 'item')) addItem(item);
+        };
+
+        if (model?.header) addSection(model.header);
+        for (const section of this.modelCollectionValues(model?.sections, 'section')) addSection(section);
+        for (const section of this.modelCollectionValues(model?.modal?.sections, 'section')) addSection(section);
+        // Scanner v1 production-only semantic controls live on Surface.sections
+        // during the compatibility phase and intentionally do not appear in the
+        // legacy top-level projection. Audit must count those as emitted too.
+        for (const surface of this.modelCollectionValues(model?.surfaces, 'surface')) {
+          for (const section of this.modelCollectionValues(surface?.sections, 'section')) addSection(section);
+        }
+        return set;
+      }
+
+      emittedItemCount(model) {
+        const keys = new Set();
+        const objects = new Set();
+        const visitedSections = new Set();
+        const addItem = item => {
+          if (!item || objects.has(item)) return;
+          objects.add(item);
+          if (item.key) keys.add(item.key);
+          else keys.add(`object:${objects.size}`);
+          for (const child of this.modelCollectionValues(item?.childContexts, 'context')) {
+            for (const childItem of this.modelCollectionValues(child?.items, 'item')) addItem(childItem);
+          }
+        };
+        const addSection = section => {
+          if (!section || visitedSections.has(section)) return;
+          visitedSections.add(section);
+          for (const item of this.modelCollectionValues(section?.items, 'item')) addItem(item);
+        };
+        if (model?.header) addSection(model.header);
+        for (const section of this.modelCollectionValues(model?.sections, 'section')) addSection(section);
+        for (const section of this.modelCollectionValues(model?.modal?.sections, 'section')) addSection(section);
+        for (const surface of this.modelCollectionValues(model?.surfaces, 'surface')) {
+          for (const section of this.modelCollectionValues(surface?.sections, 'section')) addSection(section);
+        }
+        return keys.size;
+      }
+
+'''
+
+text = text[:start] + replacement + text[end:]
+path.write_text(text, encoding='utf-8')
