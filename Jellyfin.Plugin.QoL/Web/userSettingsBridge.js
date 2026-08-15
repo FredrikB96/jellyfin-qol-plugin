@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.2.3') return;
+    if (QoL.userSettingsBridge?.version === '1.2.4') return;
 
-    const VERSION = '1.2.3';
+    const VERSION = '1.2.4';
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
@@ -20,6 +20,7 @@
     let headerTitleSnapshot = null;
     let keybindLoading = null;
     let scannerFormOverride = null;
+    let openGeneration = 0;
 
     function setNativeHeaderTitle(title) {
         const element = document.querySelector('.skinHeader .pageTitle, .pageTitle');
@@ -43,6 +44,18 @@
 
     function clientResourceUrl(name) {
         return ApiClient.getUrl(`JellyfinQoL/Client/${name}`);
+    }
+
+    function isPreferencesMenuRoute() {
+        return /^#\/mypreferencesmenu\b/i.test(location.hash || '');
+    }
+
+    function isOpenAttemptCurrent(token, host = null) {
+        return !!(
+            token === openGeneration &&
+            isPreferencesMenuRoute() &&
+            (!host || host.isConnected)
+        );
     }
 
     // Compatibility names retained because older settings/keybind code may call
@@ -147,17 +160,47 @@
         return true;
     }
 
-    function scheduleEnsureEntry() {
+    function reconcileLifecycle(reason = 'manual') {
+        const host = document.getElementById(HOST_ID);
+        const onPreferencesMenu = isPreferencesMenuRoute();
+
+        // Jellyfin's SPA can update location.hash through a navigation path that
+        // does not emit hashchange. The settings host is deliberately mounted on
+        // top of #/mypreferencesmenu, so route ownership must be reconciled from
+        // DOM mutations/popstate as well. Never let a stale settings host leak
+        // into Home, playback, or another Jellyfin surface.
+        if (host && !onPreferencesMenu) {
+            closeUserSettings({
+                restoreSource:false,
+                reason:`route-left:${reason}`
+            });
+            return false;
+        }
+
+        if (onPreferencesMenu) {
+            ensureEntry();
+        }
+
+        return true;
+    }
+
+    function scheduleLifecycleReconcile(reason = 'scheduled') {
         if (scheduled) return;
         scheduled = true;
         requestAnimationFrame(() => {
             scheduled = false;
-            ensureEntry();
+            reconcileLifecycle(reason);
         });
     }
 
+    // Compatibility helper retained for callers/tests that still use the old
+    // entry-only scheduler name.
+    function scheduleEnsureEntry() {
+        scheduleLifecycleReconcile('ensure-entry');
+    }
+
     function ensureEntry() {
-        if (!/^#\/mypreferencesmenu\b/i.test(location.hash || '')) return false;
+        if (!isPreferencesMenuRoute()) return false;
         if (document.getElementById(ENTRY_ID)) return true;
 
         const page = document.querySelector('#myPreferencesMenuPage.page:not(.hide), #myPreferencesMenuPage');
@@ -352,19 +395,35 @@
 
     async function openUserSettings() {
         if (opening) return opening;
+
+        if (!isPreferencesMenuRoute()) {
+            reconcileLifecycle('open-outside-preferences');
+            return false;
+        }
+
         if (document.getElementById(HOST_ID)) {
             ensureNavigationSuspended();
             enableQoLScannerFormSurface('already-open');
             return true;
         }
 
+        const openToken = ++openGeneration;
         suspendNavigationForSettings();
+
         opening = (async () => {
             Dashboard.showLoadingMsg?.();
             try {
                 const response = await fetch(configurationResourceUrl(PAGE_RESOURCE), { credentials:'same-origin' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const html = await response.text();
+
+                // The user may navigate away while the settings page resource is
+                // loading. In that case, abandon the open without touching the
+                // newly-active Jellyfin surface.
+                if (!isOpenAttemptCurrent(openToken)) {
+                    restoreNavigationSuspension();
+                    return false;
+                }
 
                 const sourcePage = document.querySelector('#myPreferencesMenuPage.page:not(.hide), #myPreferencesMenuPage');
                 const mountPoint = sourcePage?.parentElement || document.body;
@@ -381,16 +440,47 @@
 
                 setNativeHeaderTitle('QoL Settings');
                 mountPoint.appendChild(host);
+
+                if (!isOpenAttemptCurrent(openToken, host)) {
+                    closeUserSettings({ restoreSource:false, reason:'open-route-left-after-mount' });
+                    return false;
+                }
+
                 await loadScript();
+
+                if (!isOpenAttemptCurrent(openToken, host)) {
+                    if (host.isConnected) {
+                        closeUserSettings({ restoreSource:false, reason:'open-route-left-after-script' });
+                    }
+                    return false;
+                }
 
                 const page = host.querySelector('#JellyfinQoLUserSettingsPage');
                 installSafeDynamicControls(page);
                 await window.JellyfinQoLUserSettingsPage.initialize(page);
+
+                if (!isOpenAttemptCurrent(openToken, host)) {
+                    if (host.isConnected) {
+                        closeUserSettings({ restoreSource:false, reason:'open-route-left-after-initialize' });
+                    }
+                    return false;
+                }
+
                 applyQoLControlClasses(page);
                 ensureNavigationSuspended();
                 enableQoLScannerFormSurface('page-initialized');
 
+                // Reconcile once more after asynchronous page initialization.
+                // This closes the host if a Jellyfin SPA transition won the race
+                // without delivering hashchange to this bridge.
+                reconcileLifecycle('page-initialized');
+
+                if (!isOpenAttemptCurrent(openToken, host)) {
+                    return false;
+                }
+
                 setTimeout(() => {
+                    if (!isOpenAttemptCurrent(openToken, host)) return;
                     loadKeybindIntegration().catch(error => {
                         console.error(LOG, 'Keybind settings integration could not be loaded.', error);
                     });
@@ -399,13 +489,22 @@
                 console.log(LOG, 'Opened DLL-hosted QoL settings as an AirNav form surface.');
                 return true;
             } catch (error) {
+                const staleOpen = openToken !== openGeneration || !isPreferencesMenuRoute();
+
                 document.getElementById(HOST_ID)?.remove();
-                if (hiddenSourcePage?.isConnected) {
+                if (hiddenSourcePage?.isConnected && !staleOpen) {
                     hiddenSourcePage.classList.remove('hide');
                     hiddenSourcePage.removeAttribute('aria-hidden');
                 }
                 hiddenSourcePage = null;
-                restoreQoLScannerFormSurface('open-failed');
+                restoreQoLScannerFormSurface(staleOpen ? 'open-stale' : 'open-failed');
+
+                if (staleOpen) {
+                    headerTitleSnapshot = null;
+                    restoreNavigationSuspension();
+                    return false;
+                }
+
                 restoreNativeHeaderTitle();
                 restoreNavigationSuspension();
                 throw error;
@@ -418,11 +517,15 @@
     }
 
     function closeUserSettings(options = {}) {
+        // Invalidate any asynchronous open still awaiting a resource/script or
+        // page initialization before removing the current host.
+        openGeneration += 1;
+
         try { QoL.userSettingsKeybindIntegration?.pageClosed?.(); } catch (_) {}
         try { window.JellyfinQoLUserSettingsPage?.destroy?.(); } catch (_) {}
         document.getElementById(HOST_ID)?.remove();
 
-        const shouldRestore = options.restoreSource !== false && /^#\/mypreferencesmenu\b/i.test(location.hash || '');
+        const shouldRestore = options.restoreSource !== false && isPreferencesMenuRoute();
         if (shouldRestore && hiddenSourcePage?.isConnected) {
             hiddenSourcePage.classList.remove('hide');
             hiddenSourcePage.removeAttribute('aria-hidden');
@@ -431,32 +534,36 @@
             headerTitleSnapshot = null;
         }
         hiddenSourcePage = null;
-        restoreQoLScannerFormSurface('page-closed');
+        restoreQoLScannerFormSurface(options.reason || 'page-closed');
         restoreNavigationSuspension();
         return true;
     }
 
-    function handleHashChange() {
-        if (document.getElementById(HOST_ID) && !/^#\/mypreferencesmenu\b/i.test(location.hash || '')) {
-            closeUserSettings({ restoreSource:false });
-        }
-        scheduleEnsureEntry();
+    function handleNavigationChange(event) {
+        const reason = event?.type || 'navigation';
+
+        // Synchronous pass closes stale settings immediately; the rAF pass
+        // catches DOM/route state that settles a moment later.
+        reconcileLifecycle(reason);
+        scheduleLifecycleReconcile(`${reason}:settled`);
     }
 
     function start() {
         if (!observer) {
-            observer = new MutationObserver(scheduleEnsureEntry);
+            observer = new MutationObserver(() => scheduleLifecycleReconcile('mutation'));
             observer.observe(document.documentElement, { childList:true, subtree:true });
-            window.addEventListener('hashchange', handleHashChange);
+            window.addEventListener('hashchange', handleNavigationChange);
+            window.addEventListener('popstate', handleNavigationChange);
         }
-        scheduleEnsureEntry();
+        scheduleLifecycleReconcile('start');
     }
 
     function destroy() {
         observer?.disconnect();
         observer = null;
-        window.removeEventListener('hashchange', handleHashChange);
-        closeUserSettings();
+        window.removeEventListener('hashchange', handleNavigationChange);
+        window.removeEventListener('popstate', handleNavigationChange);
+        closeUserSettings({ reason:'bridge-destroy' });
         restoreQoLScannerFormSurface('bridge-destroy');
         document.getElementById(ENTRY_ID)?.remove();
     }
@@ -476,6 +583,8 @@
         restoreNavigationSuspension,
         enableQoLScannerFormSurface,
         restoreQoLScannerFormSurface,
+        reconcileLifecycle,
+        scheduleLifecycleReconcile,
         sanitizeQoLMarkup,
         applyQoLControlClasses,
         installSafeDynamicControls,
