@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.8';
+  const VERSION = '1.0.9';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -1044,13 +1044,37 @@
           for (const item of section.items || []) {
             if (!item?.element?.isConnected) continue;
 
-            item.rect = this.rectSnapshot(item.element);
+            const geometryElement =
+              item.metadata
+                ?.pageFormControl
+                ? this.getPageFormGeometryElement(
+                    item.element,
+                    item.metadata
+                      ?.pageFormControlKind
+                  )
+                : item.element;
+
+            item.rect =
+              this.rectSnapshot(
+                geometryElement
+              ) ||
+              this.rectSnapshot(
+                item.element
+              );
+
             item.state = {
               ...(item.state || {}),
               visible: this.isRendered(item.element)
             };
             item.metadata = {
               ...(item.metadata || {}),
+              pageFormGeometryElement:
+                geometryElement !==
+                  item.element
+                  ? this.selectorHint(
+                      geometryElement
+                    )
+                  : null,
               inViewport: this.rectIntersectsViewport(item.rect)
             };
 
