@@ -1,0 +1,101 @@
+name: Wire production navigation geometry
+
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/wire-navigation-geometry.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Wire embedded Geometry resource
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          csproj = Path('Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj')
+          s = csproj.read_text(encoding='utf-8')
+          marker = '    <None Remove="Web\\navigationScanner.js" />\n'
+          insert = marker + '    <None Remove="Web\\navigationGeometry.js" />\n'
+          if s.count(marker) != 1:
+              raise SystemExit(f'csproj None marker count={s.count(marker)}')
+          s = s.replace(marker, insert, 1)
+          marker = '    <EmbeddedResource Include="Web\\navigationScanner.js" />\n'
+          insert = marker + '    <EmbeddedResource Include="Web\\navigationGeometry.js" />\n'
+          if s.count(marker) != 1:
+              raise SystemExit(f'csproj resource marker count={s.count(marker)}')
+          s = s.replace(marker, insert, 1)
+          csproj.write_text(s, encoding='utf-8')
+
+          controller = Path('Jellyfin.Plugin.QoL/Api/ClientResourcesController.cs')
+          s = controller.read_text(encoding='utf-8')
+          replacements = [
+            (
+              '            ["navigationScanner.js"] = "Jellyfin.Plugin.QoL.Web.navigationScanner.js",\n',
+              '            ["navigationScanner.js"] = "Jellyfin.Plugin.QoL.Web.navigationScanner.js",\n'
+              '            ["navigationGeometry.js"] = "Jellyfin.Plugin.QoL.Web.navigationGeometry.js",\n'
+            ),
+            (
+              '            var navigationScannerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationScanner.js"]);\n'
+              '            var launcherRuntimeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["launcherRuntime.js"]);',
+              '            var navigationScannerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationScanner.js"]);\n'
+              '            var navigationGeometryStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationGeometry.js"]);\n'
+              '            var launcherRuntimeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["launcherRuntime.js"]);'
+            ),
+            (
+              'guardManagerStream is null || navigationScannerStream is null || launcherRuntimeStream is null',
+              'guardManagerStream is null || navigationScannerStream is null || navigationGeometryStream is null || launcherRuntimeStream is null'
+            ),
+            (
+              '                navigationScannerStream?.Dispose();\n                launcherRuntimeStream?.Dispose();',
+              '                navigationScannerStream?.Dispose();\n                navigationGeometryStream?.Dispose();\n                launcherRuntimeStream?.Dispose();'
+            ),
+            (
+              '            using (navigationScannerStream)\n            using (launcherRuntimeStream)',
+              '            using (navigationScannerStream)\n            using (navigationGeometryStream)\n            using (launcherRuntimeStream)'
+            ),
+            (
+              '            using (var navigationScannerReader = new StreamReader(navigationScannerStream))\n            using (var launcherRuntimeReader = new StreamReader(launcherRuntimeStream))',
+              '            using (var navigationScannerReader = new StreamReader(navigationScannerStream))\n            using (var navigationGeometryReader = new StreamReader(navigationGeometryStream))\n            using (var launcherRuntimeReader = new StreamReader(launcherRuntimeStream))'
+            ),
+            (
+              '                var navigationScanner = navigationScannerReader.ReadToEnd();\n                var bootstrap = bootstrapReader.ReadToEnd();',
+              '                var navigationScanner = navigationScannerReader.ReadToEnd();\n                var navigationGeometry = navigationGeometryReader.ReadToEnd();\n                var bootstrap = bootstrapReader.ReadToEnd();'
+            ),
+            (
+              '                    navigationScanner + "\\n" +\n                    bootstrap + "\\n" +',
+              '                    navigationScanner + "\\n" +\n                    navigationGeometry + "\\n" +\n                    bootstrap + "\\n" +'
+            )
+          ]
+          for old, new in replacements:
+              if s.count(old) != 1:
+                  raise SystemExit(f'controller marker count={s.count(old)} for {old[:80]!r}')
+              s = s.replace(old, new, 1)
+          controller.write_text(s, encoding='utf-8')
+          PY
+
+          git diff --check
+          grep -F 'navigationGeometry.js' Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj
+          grep -F 'navigationGeometry.js' Jellyfin.Plugin.QoL/Api/ClientResourcesController.cs
+
+      - name: Commit wiring and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/wire-navigation-geometry.yml
+          git add Jellyfin.Plugin.QoL/Jellyfin.Plugin.QoL.csproj Jellyfin.Plugin.QoL/Api/ClientResourcesController.cs Jellyfin.Plugin.QoL/Web/navigationGeometry.js
+          git commit -m "feat: wire production navigation geometry"
+          git push origin HEAD:dev
