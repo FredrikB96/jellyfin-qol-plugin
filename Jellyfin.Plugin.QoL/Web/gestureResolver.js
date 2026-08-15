@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.gestureResolverRuntime?.version === '1.0.0') return;
+    if (QoL.gestureResolverRuntime?.version === '1.0.1') return;
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const LOG = '[JellyfinQoL.GestureResolver]';
     const VALID_GESTURES = new Set(['single', 'double', 'long', 'repeat']);
     const DEFAULT_TIMINGS = Object.freeze({
@@ -21,6 +21,100 @@
         if (value == null) return value;
         try { return JSON.parse(JSON.stringify(value)); }
         catch (_) { return value; }
+    }
+
+    function diagnosticNodeRef(value) {
+        if (!value || typeof value !== 'object') return null;
+
+        const item = value.item || null;
+        const section = value.section || null;
+        const result = {};
+
+        if (item) {
+            result.item = {
+                key: item.key || null,
+                title: item.title || null,
+                type: item.type || null
+            };
+        }
+
+        if (section) {
+            result.section = {
+                id: section.id || null,
+                key: section.key || null,
+                title: section.title || null
+            };
+        }
+
+        if (Number.isFinite(Number(value.score))) result.score = Number(value.score);
+        if (value.key != null) result.key = String(value.key);
+        if (value.title != null) result.title = String(value.title);
+
+        return Object.keys(result).length ? result : null;
+    }
+
+    function diagnosticDetail(value) {
+        if (!value || typeof value !== 'object') return value ?? null;
+
+        const result = {};
+        Object.entries(value).forEach(([key, item]) => {
+            if (item == null || ['string', 'number', 'boolean'].includes(typeof item)) {
+                result[key] = item;
+            }
+        });
+
+        if (Array.isArray(value.candidates)) result.candidateCount = value.candidates.length;
+
+        for (const key of ['current', 'target', 'selected', 'item', 'section']) {
+            const reference = diagnosticNodeRef(
+                key === 'item' ? { item:value[key] } :
+                key === 'section' ? { section:value[key] } :
+                value[key]
+            );
+            if (reference) result[key] = reference;
+        }
+
+        return result;
+    }
+
+    // Controller results may reference the full NavigationModel and every
+    // scored geometry candidate. Deep-cloning that graph on every physical
+    // key made large forms pause for hundreds of milliseconds even though the
+    // actual focus move had already completed. Resolver diagnostics only need
+    // the outcome and compact navigation references.
+    function summarizeDispatchResult(value) {
+        if (value == null || typeof value !== 'object') return value ?? null;
+
+        const result = {};
+        Object.entries(value).forEach(([key, item]) => {
+            if (item == null || ['string', 'number', 'boolean'].includes(typeof item)) {
+                result[key] = item;
+            }
+        });
+
+        if (value.error != null) {
+            result.error = String(value.error?.message || value.error);
+        }
+
+        if (value.event && typeof value.event === 'object') {
+            result.event = diagnosticDetail(value.event);
+        }
+
+        for (const key of [
+            'movement',
+            'pageForm',
+            'modal',
+            'itemActions',
+            'retry',
+            'activation',
+            'bridgeResult'
+        ]) {
+            if (value[key] && typeof value[key] === 'object') {
+                result[key] = diagnosticDetail(value[key]);
+            }
+        }
+
+        return result;
     }
 
     function nowMs() {
@@ -576,7 +670,7 @@
 
             this.lastResolved = {
                 envelope: clone(envelope),
-                result: clone(result)
+                result: summarizeDispatchResult(result)
             };
             this.emit('resolved', this.lastResolved);
             return { envelope, result };
@@ -686,7 +780,7 @@
                     claimed: true,
                     reason: state.ownedPhysical ? 'repeat-press-dispatched' : 'repeat-press-unhandled',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -706,7 +800,7 @@
                     claimed: true,
                     reason: 'double-press-resolved',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -723,7 +817,7 @@
                     claimed: true,
                     reason: state.ownedPhysical ? 'single-press-dispatched' : 'single-press-unhandled',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -763,7 +857,7 @@
                     claimed: true,
                     reason: 'repeat-release',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -774,7 +868,7 @@
                     claimed: true,
                     reason: 'double-release',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -788,7 +882,7 @@
                     claimed: true,
                     reason: 'long-release',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -799,7 +893,7 @@
                     claimed: true,
                     reason: 'single-release',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -858,7 +952,7 @@
                     claimed: true,
                     reason: 'single-resolved-after-short-hold',
                     identity,
-                    downstream: clone(dispatched.result)
+                    downstream: summarizeDispatchResult(dispatched.result)
                 };
             }
 
@@ -936,7 +1030,11 @@
                     flushed: true,
                     flushReason: reason
                 });
-                flushed.push({ identity, binding: clone(pending.singleBinding), downstream: clone(pressed.result) });
+                flushed.push({
+                    identity,
+                    binding: clone(pending.singleBinding),
+                    downstream: summarizeDispatchResult(pressed.result)
+                });
             }
             return { flushed: flushed.length, items: flushed };
         }

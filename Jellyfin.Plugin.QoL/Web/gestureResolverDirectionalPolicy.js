@@ -2,8 +2,8 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.2.0';
-    const RESOLVER_VERSION = '1.1.2';
+    const VERSION = '1.2.1';
+    const RESOLVER_VERSION = '1.1.3';
     const LOG = '[JellyfinQoL.GestureResolverDirectionalPolicy]';
     const DIRECTIONS = Object.freeze(['UP', 'DOWN', 'LEFT', 'RIGHT']);
     const DIRECTION_SET = new Set(DIRECTIONS);
@@ -116,6 +116,15 @@
 
         if (explicitMove === false) return false;
         return result.handled !== false;
+    }
+
+    function summarizeDirectionalResult(result) {
+        if (!result || typeof result !== 'object') return result ?? null;
+        return {
+            handled: result.handled !== false,
+            reason: result.reason || null,
+            moved: nestedMoveFlag(result)
+        };
     }
 
     let probe = null;
@@ -244,7 +253,7 @@
                         action: state.activeBinding.action,
                         reason: 'directional-boundary',
                         repeatIndex: state.repeatCount,
-                        downstream: clone(pressed.result)
+                        downstream: summarizeDirectionalResult(pressed.result)
                     });
                 } catch (_) {}
 

@@ -5,7 +5,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const LEGACY_VERSION = '7.4B';
   const LOG = '[JellyfinQoL.NavigationFocus]';
 
@@ -526,6 +526,19 @@
           previous.itemKey !== item.key ||
           previous.sectionId !== section.id;
 
+        // PageForm controls are driven through canonical AirNav actions. When
+        // logical selection moves, release any native form control left from
+        // the previous item so it cannot consume the next arrow/ENTER. Do this
+        // only for a real logical move: a same-item Scanner reconciliation may
+        // have been caused by the user clicking another native control, whose
+        // focus and popup must remain untouched.
+        if (
+          logicalChanged &&
+          item?.metadata?.pageFormControl
+        ) {
+          this.releaseNativePageFormFocus();
+        }
+
         const domIndex = Number.isInteger(item?.metadata?.domIndex)
           ? item.metadata.domIndex
           : section.items.indexOf(item);
@@ -596,13 +609,20 @@
         this.renderedElement = element;
 
         const focusTarget = this.getFocusTarget(item);
-        this.renderedFocusTarget = focusTarget;
+        const syncFocusTarget = this.shouldSyncDomFocus(item, focusTarget)
+          ? focusTarget
+          : null;
+        this.renderedFocusTarget = syncFocusTarget;
 
-        if (this.cfg.syncDomFocus && focusTarget && this.canSafelyFocus(focusTarget)) {
+        if (
+          this.cfg.syncDomFocus &&
+          syncFocusTarget &&
+          this.canSafelyFocus(syncFocusTarget)
+        ) {
           try {
-            focusTarget.focus({ preventScroll: true });
+            syncFocusTarget.focus({ preventScroll: true });
           } catch (_) {
-            try { focusTarget.focus(); } catch (_) {}
+            try { syncFocusTarget.focus(); } catch (_) {}
           }
         }
 
@@ -641,6 +661,48 @@
         if (element?.isConnected) return element;
 
         return null;
+      }
+
+      shouldSyncDomFocus(item, element) {
+        if (!element?.isConnected) return false;
+
+        // Visual focus is authoritative for PageForm controls. Giving a
+        // native select/checkbox DOM focus makes the browser compete with the
+        // canonical input layer and can close a mouse-opened select when a
+        // delayed Scanner reconciliation renders the AirNav selection again.
+        return item?.metadata?.pageFormControl !== true;
+      }
+
+      releaseNativePageFormFocus() {
+        const active = document.activeElement;
+        if (!active?.isConnected) return false;
+
+        const tag = String(active.tagName || '').toLowerCase();
+        const type = String(active.getAttribute?.('type') || active.type || '').toLowerCase();
+        const nativePageFormControl =
+          tag === 'select' ||
+          (
+            tag === 'input' &&
+            [
+              'button',
+              'checkbox',
+              'number',
+              'radio',
+              'range',
+              'reset',
+              'submit'
+            ].includes(type)
+          ) ||
+          tag === 'button';
+
+        if (!nativePageFormControl) return false;
+
+        try {
+          active.blur?.();
+          return document.activeElement !== active;
+        } catch (_) {
+          return false;
+        }
       }
 
       canSafelyFocus(element) {
