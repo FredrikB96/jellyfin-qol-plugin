@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.userSettingsBridge?.version === '1.2.4') return;
+    if (QoL.userSettingsBridge?.version === '1.2.5') return;
 
-    const VERSION = '1.2.4';
+    const VERSION = '1.2.5';
     const LOG = '[JellyfinQoL.UserSettingsBridge]';
     const ENTRY_ID = 'jellyfinQoLUserSettingsLink';
     const HOST_ID = 'jellyfinQoLUserSettingsHost';
@@ -36,6 +36,19 @@
         if (!snapshot?.element?.isConnected) return false;
         snapshot.element.innerHTML = snapshot.html;
         return true;
+    }
+
+    function handleHeaderBack(event) {
+        const host = document.getElementById(HOST_ID);
+        if (!host || !isPreferencesMenuRoute()) return;
+
+        const button = event.target?.closest?.('.headerBackButton');
+        if (!button?.isConnected) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+        closeUserSettings({ reason:'header-back' });
     }
 
     function configurationResourceUrl(name) {
@@ -554,6 +567,7 @@
             observer.observe(document.documentElement, { childList:true, subtree:true });
             window.addEventListener('hashchange', handleNavigationChange);
             window.addEventListener('popstate', handleNavigationChange);
+            document.addEventListener('click', handleHeaderBack, true);
         }
         scheduleLifecycleReconcile('start');
     }
@@ -563,6 +577,7 @@
         observer = null;
         window.removeEventListener('hashchange', handleNavigationChange);
         window.removeEventListener('popstate', handleNavigationChange);
+        document.removeEventListener('click', handleHeaderBack, true);
         closeUserSettings({ reason:'bridge-destroy' });
         restoreQoLScannerFormSurface('bridge-destroy');
         document.getElementById(ENTRY_ID)?.remove();

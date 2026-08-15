@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.7';
+  const VERSION = '1.0.8';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -2176,7 +2176,7 @@
             )
             .filter(Boolean);
 
-        const controls =
+        const usableControls =
           this.dedupeInteractiveElements(
             candidates
           )
@@ -2184,13 +2184,40 @@
               this.isPageFormControlUsable(
                 element
               )
-            )
+            );
+
+        const unownedControls =
+          usableControls
             .filter(element =>
               !ownedElements.some(
                 owner =>
                   owner === element ||
                   owner.contains?.(element)
               )
+            );
+
+        const root =
+          this.findPageFormRoot(
+            unownedControls.length
+              ? unownedControls
+              : usableControls
+          );
+
+        // A known visual section commonly discovers buttons before PageForm
+        // discovery runs, while native selects/inputs are left for this pass.
+        // Keeping those elements in separate logical sections makes the same
+        // HTML form impossible to traverse: vertical movement stays inside the
+        // synthetic control section and jumps over the intervening buttons.
+        //
+        // Once an editable form root is identified, let the form section own
+        // every supported control inside that root and remove transferred
+        // button aliases from the earlier structural sections.
+        const controls =
+          usableControls
+            .filter(element =>
+              !root ||
+              root === element ||
+              root.contains?.(element)
             );
 
         if (!controls.length) {
@@ -2224,6 +2251,73 @@
 
         if (!hasEditableControl) {
           return null;
+        }
+
+        const transferredElements =
+          new Set(
+            controls.filter(element =>
+              ownedElements.includes(
+                element
+              )
+            )
+          );
+
+        if (transferredElements.size) {
+          for (
+            let index =
+              existingSections.length - 1;
+            index >= 0;
+            index -= 1
+          ) {
+            const section =
+              existingSections[index];
+
+            const remaining =
+              (section.items || [])
+                .filter(item =>
+                  !transferredElements.has(
+                    item.element
+                  )
+                );
+
+            if (
+              remaining.length ===
+              (section.items || []).length
+            ) {
+              continue;
+            }
+
+            if (!remaining.length) {
+              existingSections.splice(
+                index,
+                1
+              );
+              continue;
+            }
+
+            section.items =
+              remaining;
+
+            section.rect =
+              this.unionItemRects(
+                remaining
+              ) ||
+              this.rectSnapshot(
+                section.element
+              );
+
+            section.metadata = {
+              ...(section.metadata || {}),
+              visualRows:
+                this.countVisualRows(
+                  remaining
+                    .map(item =>
+                      item.element
+                    )
+                    .filter(Boolean)
+                )
+            };
+          }
         }
 
         controls.sort((a, b) => {
@@ -2266,11 +2360,6 @@
         if (!items.length) {
           return null;
         }
-
-        const root =
-          this.findPageFormRoot(
-            controls
-          );
 
         return {
           id:
@@ -2372,17 +2461,26 @@
             element
           );
 
+        const kind =
+          this.getPageFormControlKind(
+            element
+          );
+
+        const geometryElement =
+          this.getPageFormGeometryElement(
+            element,
+            kind
+          );
+
         const rect =
+          this.rectSnapshot(
+            geometryElement
+          ) ||
           this.rectSnapshot(
             element
           );
 
         if (!rect) return null;
-
-        const kind =
-          this.getPageFormControlKind(
-            element
-          );
 
         const title =
           this.getPageFormControlTitle(
@@ -2445,12 +2543,62 @@
               true,
             pageFormControlKind:
               kind,
+            pageFormGeometryElement:
+              geometryElement !== element
+                ? this.selectorHint(
+                    geometryElement
+                  )
+                : null,
             value:
               'value' in element
                 ? element.value
                 : null
           }
         };
+      }
+
+      getPageFormGeometryElement(
+        element,
+        kind
+      ) {
+        if (
+          !element ||
+          !(
+            kind === 'checkbox' ||
+            kind === 'radio'
+          )
+        ) {
+          return element;
+        }
+
+        const row =
+          element.closest?.(
+            'label.checkboxContainer, label.radioContainer, label'
+          ) ||
+          null;
+
+        if (
+          !row ||
+          !row.contains?.(element) ||
+          !this.isRendered(row)
+        ) {
+          return element;
+        }
+
+        const elementRect =
+          element.getBoundingClientRect();
+
+        const rowRect =
+          row.getBoundingClientRect();
+
+        // Only widen semantic label rows. Compact table/grid checkboxes with
+        // no label intentionally retain their own column geometry.
+        return (
+          rowRect.width >
+            elementRect.width + 8
+        )
+          ? row
+          : element;
       }
 
       getPageFormControlKind(
@@ -7421,3 +7569,4 @@
   }
 
 })(window.JellyfinQoL = window.JellyfinQoL || {});
+
