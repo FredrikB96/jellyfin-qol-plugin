@@ -5,7 +5,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const LEGACY_VERSION = '7.4B';
   const LOG = '[JellyfinQoL.NavigationFocus]';
 
@@ -646,9 +646,17 @@
       canSafelyFocus(element) {
         if (!element || !element.isConnected) return false;
 
-        // Phase 3 never tries to steal focus from a text-entry field.
+        // Preserve genuine text-entry handoff, but do not let a stale
+        // select/range/number control keep browser-native arrow ownership
+        // after logical AirNav selection has moved elsewhere.
         const active = document.activeElement;
-        if (active && this.isTextInput(active)) return false;
+        if (
+          active &&
+          active !== element &&
+          this.isTextInput(active)
+        ) {
+          return false;
+        }
 
         return typeof element.focus === 'function';
       }
@@ -656,13 +664,43 @@
       isTextInput(element) {
         if (!element) return false;
 
-        const tag = element.tagName?.toLowerCase();
-        return (
-          tag === 'input' ||
+        const tag =
+          element.tagName?.toLowerCase();
+
+        if (
           tag === 'textarea' ||
-          tag === 'select' ||
           element.isContentEditable === true
-        );
+        ) {
+          return true;
+        }
+
+        if (tag !== 'input') {
+          return false;
+        }
+
+        const type =
+          String(
+            element.getAttribute?.('type') ||
+            element.type ||
+            'text'
+          ).toLowerCase();
+
+        // Inputs with native directional semantics are PageForm controls,
+        // not text-entry handoff targets. FocusManager may safely move DOM
+        // focus away from them when the logical selection changes.
+        return ![
+          'button',
+          'checkbox',
+          'color',
+          'file',
+          'hidden',
+          'image',
+          'number',
+          'radio',
+          'range',
+          'reset',
+          'submit'
+        ].includes(type);
       }
 
       // ---------------------------------------------------------------
