@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Jellyfin.Plugin.QoL.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -17,6 +18,8 @@ namespace Jellyfin.Plugin.QoL.Api;
 [Route("JellyfinQoL/Client")]
 public sealed class ClientResourcesController : ControllerBase
 {
+    private readonly ClientBootstrapStatus _bootstrapStatus;
+
     private static readonly IReadOnlyDictionary<string, string> Resources =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -77,6 +80,32 @@ public sealed class ClientResourcesController : ControllerBase
     window.addEventListener('jellyfin-qol-client-ready', loadRecordInput, { once:true });
 })();
 """;
+
+    /// <summary>Initializes a new instance of the <see cref="ClientResourcesController"/> class.</summary>
+    /// <param name="bootstrapStatus">Client bootstrap hosting diagnostics.</param>
+    public ClientResourcesController(ClientBootstrapStatus bootstrapStatus)
+    {
+        _bootstrapStatus = bootstrapStatus;
+    }
+
+    /// <summary>Returns the active client bootstrap host.</summary>
+    /// <returns>Bootstrap registration diagnostics.</returns>
+    [HttpGet("bootstrap-status")]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult GetBootstrapStatus()
+    {
+        var snapshot = _bootstrapStatus.GetSnapshot();
+        return Ok(new
+        {
+            registered = snapshot.Registered,
+            host = snapshot.Host,
+            message = snapshot.Message,
+            lastAttemptUtc = snapshot.LastAttemptUtc,
+            attempt = snapshot.Attempt,
+            requiredHosts = new[] { "File Transformation", "JavaScript Injector" }
+        });
+    }
 
     /// <summary>Returns an embedded client JavaScript module by allow-listed name.</summary>
     /// <param name="name">Allow-listed resource file name.</param>

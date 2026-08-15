@@ -1,14 +1,20 @@
 # Jellyfin QoL Plugin
 
-Final-plugin migration build focused on the permanent settings architecture.
+Jellyfin Web/HTPC quality-of-life features and controller-independent Air
+Navigation, distributed as a normal Jellyfin repository plugin.
+
+## Requirement
+
+Install and enable either **File Transformation** (preferred) or **JavaScript
+Injector**. Jellyfin QoL registers its embedded client bootstrap through the
+available plugin API; no script needs to be copied or pasted.
 
 - Global/admin defaults live in the standard Jellyfin plugin settings page.
 - Per-user QoL settings live in Profile -> Settings -> QoL Settings.
 - User settings are stored separately per authenticated Jellyfin user.
 - Device enrollment/helper/HTPC state stays client-local.
 - User settings use one vertically-scrolling page with sections, not a tab bar.
-- Existing prototype AirNav runtime may remain injected while runtime modules are migrated.
-- Functions not implemented in the final runtime yet intentionally log `[STUB]`.
+- The browser runtime and user-settings bridge are embedded in the plugin DLL.
 
 See `SETTINGS_ARCHITECTURE.md` and `BUILD_AND_INSTALL.md`.
 

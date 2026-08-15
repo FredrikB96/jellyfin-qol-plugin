@@ -58,15 +58,16 @@ These remain in the individual browser/WebView profile:
 - Protected-input helper registry cache
 - HTPC exit behavior
 
-## Development bridge
+## Client bootstrap hosting
 
 Jellyfin 10.11's plugin configuration page list is administrator-gated. The
-final user page therefore needs client integration to insert the QoL Settings
-entry into the normal user preferences page.
+final user page therefore uses an embedded client bridge to insert the QoL
+Settings entry into the normal user preferences page.
 
-During migration, load only `dev/Load_DLL_User_Settings_Bridge.js` through the
-existing JavaScript Injector. It contains no settings UI or persistence logic;
-it only loads the bridge embedded in the DLL.
+At server startup the DLL automatically registers its small bootstrap loader
+through File Transformation or JavaScript Injector. File Transformation is
+preferred when both are enabled. The registration is plugin-owned and
+idempotent; users do not paste JavaScript or maintain a custom loader entry.
 
-The final repository build should later bootstrap this embedded bridge itself,
-at which point the temporary development loader is removed.
+If neither host can be registered, the server logs an explicit error and the
+admin plugin page reports that the client runtime is inactive.
