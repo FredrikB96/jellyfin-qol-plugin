@@ -35,6 +35,7 @@
     <None Remove="Web\universalInput.js" />
     <None Remove="Web\controlBridge.js" />
     <None Remove="Web\guardManager.js" />
+    <None Remove="Web\navigationScanner.js" />
     <None Remove="Web\launcherRuntime.js" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.html" />
@@ -50,6 +51,7 @@
     <EmbeddedResource Include="Web\universalInput.js" />
     <EmbeddedResource Include="Web\controlBridge.js" />
     <EmbeddedResource Include="Web\guardManager.js" />
+    <EmbeddedResource Include="Web\navigationScanner.js" />
     <EmbeddedResource Include="Web\launcherRuntime.js" />
   </ItemGroup>
 </Project>
