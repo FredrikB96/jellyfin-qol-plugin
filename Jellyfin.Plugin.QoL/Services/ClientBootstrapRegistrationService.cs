@@ -116,11 +116,12 @@ public sealed class ClientBootstrapRegistrationService : IScheduledTask
             object payload = CreateForeignJObject(method, new
             {
                 id = Plugin.PluginId,
-                // File Transformation interprets this value as a regular
-                // expression. Match only the real Jellyfin Web index file;
-                // an unescaped `index.html` also matches chunk names such as
-                // `itemDetails-index-html.<hash>.chunk.js`.
-                fileNamePattern = @"(?i)(?:^|[/\\])index\.html$",
+                // Use the host's canonical literal key so this callback joins
+                // the same index pipeline as other plugins. File Transformation
+                // also evaluates literal keys as regular expressions for
+                // non-exact paths, so TransformIndexHtml must independently
+                // reject every payload that is not an HTML document.
+                fileNamePattern = "index.html",
                 callbackAssembly = typeof(ClientBootstrapTransformation).Assembly.FullName,
                 callbackClass = typeof(ClientBootstrapTransformation).FullName,
                 callbackMethod = nameof(ClientBootstrapTransformation.TransformIndexHtml)

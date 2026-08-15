@@ -64,8 +64,12 @@ public static class ClientBootstrapTransformation
         // Defense in depth: never append HTML markup to a JavaScript or other
         // non-document response even if a host plugin calls this callback for
         // an unexpected filename.
+        var documentStart = contents.TrimStart();
+        var isHtmlDocument =
+            documentStart.StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase) ||
+            documentStart.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
         var bodyIndex = contents.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-        if (bodyIndex < 0)
+        if (!isHtmlDocument || bodyIndex < 0)
         {
             return contents;
         }
