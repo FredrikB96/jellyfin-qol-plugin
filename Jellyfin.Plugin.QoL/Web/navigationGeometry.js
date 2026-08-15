@@ -14,7 +14,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const LEGACY_VERSION = '7.4B';
   const LOG = '[JellyfinQoL.NavigationGeometry]';
 
@@ -326,6 +326,7 @@
       findNearestDirectionalSections(model, currentSection, currentRect, direction) {
         const isUsableSection = section => !!(
           section &&
+          section.metadata?.directional !== false &&
           Array.isArray(section.items) &&
           section.items.some(item => this.isValidItem(item))
         );
