@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.6';
+  const VERSION = '1.0.7';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -115,7 +115,14 @@
         '[role="dialog"]',
         '[data-role="dialog"]'
       ].join(', '),
-      passiveOverlaySelector: '#pause-screen-overlay',
+      // These overlays are owned by another navigation subcontext and must
+      // not steal Scanner surface ownership. The PageForm select menu remains
+      // part of PAGE_NAVIGATION so its safe preview/commit/cancel contract can
+      // receive canonical DOWN/UP/ACTIVATE/BACK actions.
+      passiveOverlaySelector: [
+        '#pause-screen-overlay',
+        '.airnav-page-select-menu'
+      ].join(', '),
       genericOverlayMinimumAreaRatio: 0.08,
       genericOverlayMinimumInteractiveCount: 1,
       genericOverlayMinimumZIndex: 100,

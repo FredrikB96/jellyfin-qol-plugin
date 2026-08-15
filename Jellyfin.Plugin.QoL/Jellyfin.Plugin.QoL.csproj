@@ -40,6 +40,7 @@
     <None Remove="Web\navigationGeometry.js" />
     <None Remove="Web\navigationScroll.js" />
     <None Remove="Web\navigationItemActions.js" />
+    <None Remove="Web\navigationPageForm.js" />
     <None Remove="Web\navigationModal.js" />
     <None Remove="Web\navigationController.js" />
     <None Remove="Web\launcherRuntime.js" />
@@ -62,6 +63,7 @@
     <EmbeddedResource Include="Web\navigationGeometry.js" />
     <EmbeddedResource Include="Web\navigationScroll.js" />
     <EmbeddedResource Include="Web\navigationItemActions.js" />
+    <EmbeddedResource Include="Web\navigationPageForm.js" />
     <EmbeddedResource Include="Web\navigationModal.js" />
     <EmbeddedResource Include="Web\navigationController.js" />
     <EmbeddedResource Include="Web\launcherRuntime.js" />
