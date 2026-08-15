@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -122,7 +122,7 @@
 
       // Preserve detailed audit output without making normal models huge.
       auditUnknownLimit: 120,
-      auditCandidateLimit: 4000,
+      auditCandidateLimit: 12000,
 
       // Jellyfin 10.11 can split the visible header across several containers
       // during SPA transitions. Discover the union rather than trusting only
@@ -6260,9 +6260,11 @@
 
       buildProductionResidualSections(model, surfaceId) {
         const emitted = this.emittedElementSet(model);
+        const activePageRoot = this.findActivePageRoot();
         const candidates = this.collectGenericCandidates({
           includeCursorPointer: false,
-          limit: 2500
+          root: activePageRoot,
+          limit: 6000
         });
 
         const supportedKinds = new Set([
@@ -6275,6 +6277,11 @@
           if (!supportedKinds.has(candidate.kind)) return false;
           if (emitted.has(element)) return false;
           if (!candidate.visibility.rendered || !candidate.visibility.enabled) return false;
+          if (element.matches?.('.emby-scrollbuttons-button')) return false;
+          // Native Jellyfin cards expose title/subtitle/detail anchors as semantic
+          // descendants of the same logical media occurrence. They are activation
+          // aliases, not additional production navigation items.
+          if (element.closest?.(this.cfg.itemSelector)) return false;
           if (element.closest?.('.skinHeader, .mainDrawer, [role="dialog"], [aria-modal="true"], .dialog, .actionSheet, .videoPlayerContainer')) return false;
           return true;
         });
@@ -6522,15 +6529,22 @@
       }
 
       collectGenericCandidates(options = {}) {
-        const max = Math.max(100, Number(options.limit) || Number(this.cfg.auditCandidateLimit) || 4000);
+        const max = Math.max(100, Number(options.limit) || Number(this.cfg.auditCandidateLimit) || 12000);
         const includeCursorPointer = options.includeCursorPointer !== false;
+        const queryRoot = options.root instanceof Element ? options.root : document;
         const candidates = [];
         const seen = new Set();
         let semantic = [];
         let suspicious = [];
 
-        try { semantic = Array.from(document.querySelectorAll(this.cfg.genericInteractiveSelector)); } catch (_) {}
-        try { suspicious = Array.from(document.querySelectorAll(this.cfg.genericSuspiciousSelector)); } catch (_) {}
+        try {
+          semantic = Array.from(queryRoot.querySelectorAll(this.cfg.genericInteractiveSelector));
+          if (queryRoot instanceof Element && queryRoot.matches?.(this.cfg.genericInteractiveSelector)) semantic.unshift(queryRoot);
+        } catch (_) {}
+        try {
+          suspicious = Array.from(queryRoot.querySelectorAll(this.cfg.genericSuspiciousSelector));
+          if (queryRoot instanceof Element && queryRoot.matches?.(this.cfg.genericSuspiciousSelector)) suspicious.unshift(queryRoot);
+        } catch (_) {}
 
         for (const element of [...semantic, ...suspicious]) {
           if (!element?.isConnected || seen.has(element)) continue;
@@ -6544,7 +6558,7 @@
         // mode into an expensive whole-document hot path.
         if (includeCursorPointer && candidates.length < max) {
           let inspected = 0;
-          for (const element of document.querySelectorAll('div, span, label')) {
+          for (const element of queryRoot.querySelectorAll('div, span, label')) {
             if (++inspected > 5000 || candidates.length >= max) break;
             if (seen.has(element) || !element.isConnected) continue;
             let style;
@@ -6562,16 +6576,59 @@
 
       emittedElementSet(model) {
         const set = new Set();
+        const visitedSections = new Set();
         const addItem = item => {
           if (item?.element) set.add(item.element);
           if (item?.activationTarget) set.add(item.activationTarget);
           for (const action of item?.actions || []) if (action?.element) set.add(action.element);
           for (const control of item?.controls || []) if (control?.element) set.add(control.element);
+          for (const child of item?.childContexts || []) {
+            for (const childItem of child?.items || []) addItem(childItem);
+          }
         };
-        if (model?.header) for (const item of model.header.items || []) addItem(item);
-        for (const section of model?.sections || []) for (const item of section.items || []) addItem(item);
-        for (const section of model?.modal?.sections || []) for (const item of section.items || []) addItem(item);
+        const addSection = section => {
+          if (!section || visitedSections.has(section)) return;
+          visitedSections.add(section);
+          for (const item of section.items || []) addItem(item);
+        };
+
+        if (model?.header) addSection(model.header);
+        for (const section of model?.sections || []) addSection(section);
+        for (const section of model?.modal?.sections || []) addSection(section);
+        // Scanner v1 production-only semantic controls live on Surface.sections
+        // during the compatibility phase and intentionally do not appear in the
+        // legacy top-level projection. Audit must count those as emitted too.
+        for (const surface of model?.surfaces || []) {
+          for (const section of surface?.sections || []) addSection(section);
+        }
         return set;
+      }
+
+      emittedItemCount(model) {
+        const keys = new Set();
+        const objects = new Set();
+        const visitedSections = new Set();
+        const addItem = item => {
+          if (!item || objects.has(item)) return;
+          objects.add(item);
+          if (item.key) keys.add(item.key);
+          else keys.add(`object:${objects.size}`);
+          for (const child of item?.childContexts || []) {
+            for (const childItem of child?.items || []) addItem(childItem);
+          }
+        };
+        const addSection = section => {
+          if (!section || visitedSections.has(section)) return;
+          visitedSections.add(section);
+          for (const item of section.items || []) addItem(item);
+        };
+        if (model?.header) addSection(model.header);
+        for (const section of model?.sections || []) addSection(section);
+        for (const section of model?.modal?.sections || []) addSection(section);
+        for (const surface of model?.surfaces || []) {
+          for (const section of surface?.sections || []) addSection(section);
+        }
+        return keys.size;
       }
 
       audit() {
@@ -6584,9 +6641,13 @@
           notRendered: 0,
           disabled: 0,
           emitted: 0,
+          inactiveSurface: 0,
+          scrollChrome: 0,
+          redundantCardActivation: 0,
           wrapperOrDecorative: 0
         };
         const unknownInteractiveCandidates = [];
+        let unknownInteractiveTotal = 0;
 
         for (const candidate of candidates) {
           const element = candidate.element;
@@ -6607,12 +6668,42 @@
             continue;
           }
 
+          // Jellyfin keeps the hamburger drawer mounted at left:-320px when
+          // closed. Those links are valid controls on an inactive surface, not
+          // missing items on the active page.
+          if (
+            element.closest?.('.mainDrawer, .mainDrawer-scrollContainer') &&
+            !candidate.visibility.viewportVisible
+          ) {
+            rejected.inactiveSurface += 1;
+            continue;
+          }
+
+          // Row scroll-arrow buttons are implementation chrome. Directional
+          // navigation owns row reveal/scrolling and should not surface these as
+          // logical navigation targets.
+          if (element.matches?.('.emby-scrollbuttons-button')) {
+            rejected.scrollChrome += 1;
+            continue;
+          }
+
+          // Card title/subtitle anchors duplicate the containing card's primary
+          // activation and are intentionally normalized into the media item.
+          if (
+            element.matches?.('.textActionButton') &&
+            element.closest?.(this.cfg.itemSelector)
+          ) {
+            rejected.redundantCardActivation += 1;
+            continue;
+          }
+
           const nestedConcrete = element.querySelector?.('button, a[href], input, select, textarea, [role="button"], [role="checkbox"], [role="switch"]');
           if (nestedConcrete && element !== nestedConcrete && candidate.confidence < 0.9) {
             rejected.wrapperOrDecorative += 1;
             continue;
           }
 
+          unknownInteractiveTotal += 1;
           if (unknownInteractiveCandidates.length < unknownLimit) {
             unknownInteractiveCandidates.push({
               kind: candidate.kind,
@@ -6626,11 +6717,8 @@
           }
         }
 
-        const itemCount = [
-          ...(model?.header?.items || []),
-          ...(model?.sections || []).flatMap(section => section.items || []),
-          ...(model?.modal?.sections || []).flatMap(section => section.items || [])
-        ].length;
+        const itemCount = this.emittedItemCount(model);
+        const candidateLimit = Math.max(100, Number(this.cfg.auditCandidateLimit) || 12000);
 
         this.lastAudit = {
           version: VERSION,
@@ -6640,14 +6728,22 @@
           activeSurfaceId: model?.activeSurfaceId || null,
           activeSurfaceHint: model?.activeSurfaceHint || null,
           candidatesFound: candidates.length,
+          candidateLimit,
+          candidateLimitReached: candidates.length >= candidateLimit,
           emittedItems: itemCount,
           emittedElements: emitted.size,
           rejected,
-          unknownInteractiveCount: unknownInteractiveCandidates.length,
+          unknownInteractiveCount: unknownInteractiveTotal,
+          unknownInteractiveSampleCount: unknownInteractiveCandidates.length,
           unknownInteractiveCandidates,
-          warnings: unknownInteractiveCandidates.length
-            ? [`${unknownInteractiveCandidates.length} visible interactive candidates are not represented in the legacy projection; inspect before adding an adapter.`]
-            : []
+          warnings: [
+            ...(candidates.length >= candidateLimit
+              ? [`Audit candidate limit ${candidateLimit} was reached; results may be truncated.`]
+              : []),
+            ...(unknownInteractiveTotal
+              ? [`${unknownInteractiveTotal} interactive candidates are not represented in the production model; inspect the sample before adding an adapter.`]
+              : [])
+          ]
         };
 
         return this.lastAudit;
