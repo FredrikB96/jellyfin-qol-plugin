@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.4';
+  const VERSION = '1.0.5';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -6429,6 +6429,17 @@
           const actionElements = Array.from(slide.querySelectorAll(this.cfg.heroChildActionSelector))
             .filter(element => element !== primary);
           const actions = this.makeAdapterOwnerActions(stable, actionElements);
+          const utilityElements = Array.from(container.querySelectorAll(this.cfg.heroUtilityActionSelector))
+            .filter(element => this.isRenderedRelaxed(element) && this.rectIntersectsViewport(this.rectSnapshot(element)));
+          const utilityActions = this.makeAdapterOwnerActions(stable, utilityElements)
+            .map(action => ({
+              ...action,
+              metadata: {
+                source: 'hero-utility',
+                nonSpatial: true
+              }
+            }));
+          actions.push(...utilityActions);
           const rect = this.rectSnapshot(slide);
           const href = this.getHref(primary) || this.getHref(slide);
           const serverId = this.getServerId(slide, primary);
@@ -6460,7 +6471,9 @@
               inViewport: true,
               domIndex: 0,
               adapter: true,
-              adapterSource: 'active-hero-slide'
+              adapterSource: 'active-hero-slide',
+              directional: false,
+              navigationParticipation: 'explicit'
             }
           };
 
@@ -6485,49 +6498,13 @@
             metadata: {
               source: 'active-hero-slide',
               adapter: true,
+              directional: false,
+              navigationParticipation: 'explicit',
               visualRows: 1,
               scrollMode: 'none'
             }
           });
 
-          const utilityElements = Array.from(container.querySelectorAll(this.cfg.heroUtilityActionSelector))
-            .filter(element => this.isRenderedRelaxed(element) && this.rectIntersectsViewport(this.rectSnapshot(element)));
-          if (utilityElements.length) {
-            const utilitySectionId = `section:hero-utilities:${this.slugify(itemId)}`;
-            const utilityItems = utilityElements
-              .map((element, index) => this.makeAdapterNavigationItem(element, utilitySectionId, index, {
-                adapterSource: 'hero-utility'
-              }))
-              .filter(Boolean);
-            this.ensureUniqueItemKeys(utilityItems);
-            if (utilityItems.length) {
-              sections.push({
-                id: utilitySectionId,
-                type: 'actions',
-                title: 'Featured controls',
-                element: container,
-                rect: this.unionItemRects(utilityItems) || containerRect,
-                visible: true,
-                order: 0,
-                items: utilityItems,
-                scroll: {
-                  horizontal: false,
-                  vertical: false,
-                  container: null,
-                  viewportRect: containerRect,
-                  virtualized: false,
-                  mode: 'none',
-                  contentElement: container
-                },
-                metadata: {
-                  source: 'hero-utility',
-                  adapter: true,
-                  visualRows: this.countVisualRows(utilityItems.map(item => item.element)),
-                  scrollMode: 'none'
-                }
-              });
-            }
-          }
         }
 
         return sections;
