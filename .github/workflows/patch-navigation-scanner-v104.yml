@@ -1,0 +1,49 @@
+name: Patch navigation scanner v1.0.4
+
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/patch-navigation-scanner-v104.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - name: Patch scanner selector
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Jellyfin.Plugin.QoL/Web/navigationScanner.js')
+          s = p.read_text(encoding='utf-8')
+          oldv = "const VERSION = '1.0.3';"
+          oldsel = "heroContainerSelector: '.slides-container',"
+          if s.count(oldv) != 1:
+              raise SystemExit(f'version marker count={s.count(oldv)}')
+          if s.count(oldsel) != 1:
+              raise SystemExit(f'hero selector marker count={s.count(oldsel)}')
+          s = s.replace(oldv, "const VERSION = '1.0.4';", 1)
+          s = s.replace(oldsel, "heroContainerSelector: '#slides-container, .slides-container',", 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+          git diff --check
+          grep -F "const VERSION = '1.0.4';" Jellyfin.Plugin.QoL/Web/navigationScanner.js
+          grep -F "heroContainerSelector: '#slides-container, .slides-container'," Jellyfin.Plugin.QoL/Web/navigationScanner.js
+      - name: Commit fix and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-navigation-scanner-v104.yml
+          git add Jellyfin.Plugin.QoL/Web/navigationScanner.js
+          git commit -m "fix: recognize media bar container id"
+          git push origin HEAD:dev
