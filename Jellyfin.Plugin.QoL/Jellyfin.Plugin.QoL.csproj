@@ -36,6 +36,7 @@
     <None Remove="Web\controlBridge.js" />
     <None Remove="Web\guardManager.js" />
     <None Remove="Web\navigationScanner.js" />
+    <None Remove="Web\navigationFocus.js" />
     <None Remove="Web\navigationGeometry.js" />
     <None Remove="Web\launcherRuntime.js" />
     <EmbeddedResource Include="Configuration\configPage.html" />
@@ -53,6 +54,7 @@
     <EmbeddedResource Include="Web\controlBridge.js" />
     <EmbeddedResource Include="Web\guardManager.js" />
     <EmbeddedResource Include="Web\navigationScanner.js" />
+    <EmbeddedResource Include="Web\navigationFocus.js" />
     <EmbeddedResource Include="Web\navigationGeometry.js" />
     <EmbeddedResource Include="Web\launcherRuntime.js" />
   </ItemGroup>
