@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.gestureResolverRuntime?.version === '1.0.1') return;
+    if (QoL.gestureResolverRuntime?.version === '1.0.2') return;
 
-    const VERSION = '1.0.1';
+    const VERSION = '1.0.2';
     const LOG = '[JellyfinQoL.GestureResolver]';
     const VALID_GESTURES = new Set(['single', 'double', 'long', 'repeat']);
     const DEFAULT_TIMINGS = Object.freeze({
@@ -732,7 +732,11 @@
             if (existing?.pressed) {
                 return {
                     handled: !!existing.ownedPhysical,
-                    claimed: true,
+                    // A mapped physical input is not automatically owned. If
+                    // Controller yielded to the active native surface (for
+                    // example the player while F6 is off), every keyboard
+                    // phase must remain available to Jellyfin.
+                    claimed: !!existing.ownedPhysical,
                     reason: input.raw?.repeat ? 'native-repeat-suppressed' : 'duplicate-press-suppressed',
                     identity
                 };
@@ -777,7 +781,7 @@
                 if (state.ownedPhysical) this.scheduleRepeat(state, repeatBinding);
                 return {
                     handled: state.ownedPhysical,
-                    claimed: true,
+                    claimed: state.ownedPhysical,
                     reason: state.ownedPhysical ? 'repeat-press-dispatched' : 'repeat-press-unhandled',
                     identity,
                     downstream: summarizeDispatchResult(dispatched.result)
@@ -814,7 +818,7 @@
                 state.ownedPhysical = state.downstreamHandled;
                 return {
                     handled: state.ownedPhysical,
-                    claimed: true,
+                    claimed: state.ownedPhysical,
                     reason: state.ownedPhysical ? 'single-press-dispatched' : 'single-press-unhandled',
                     identity,
                     downstream: summarizeDispatchResult(dispatched.result)
@@ -854,7 +858,7 @@
                 });
                 return {
                     handled: !!state.ownedPhysical,
-                    claimed: true,
+                    claimed: !!state.ownedPhysical,
                     reason: 'repeat-release',
                     identity,
                     downstream: summarizeDispatchResult(dispatched.result)
@@ -890,7 +894,7 @@
                 const dispatched = this.dispatchResolved(state.activeBinding, 'release', input, 'single');
                 return {
                     handled: !!state.ownedPhysical,
-                    claimed: true,
+                    claimed: !!state.ownedPhysical,
                     reason: 'single-release',
                     identity,
                     downstream: summarizeDispatchResult(dispatched.result)
@@ -993,7 +997,7 @@
                 const active = this.activePresses.get(identity);
                 return {
                     handled: !!active?.ownedPhysical,
-                    claimed: true,
+                    claimed: !!active?.ownedPhysical,
                     reason: 'native-repeat-suppressed',
                     identity
                 };
