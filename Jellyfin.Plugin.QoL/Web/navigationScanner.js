@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.3';
+  const VERSION = '1.0.4';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -140,7 +140,7 @@
         '.sectionTitleContainer button',
         '.sectionTitleContainer [role="button"]'
       ].join(', '),
-      heroContainerSelector: '.slides-container',
+      heroContainerSelector: '#slides-container, .slides-container',
       heroActiveSlideSelector: '.slide.active[data-item-id], .slide.active[tabindex]',
       heroPrimaryActionSelector: '.detail-button, .detailButton.detail-button',
       heroChildActionSelector: '.btnPlay, .play-button, .trailer-button, .favorite-button',
