@@ -38,6 +38,7 @@
     <None Remove="Web\navigationScanner.js" />
     <None Remove="Web\navigationFocus.js" />
     <None Remove="Web\navigationGeometry.js" />
+    <None Remove="Web\navigationController.js" />
     <None Remove="Web\launcherRuntime.js" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.html" />
@@ -56,6 +57,8 @@
     <EmbeddedResource Include="Web\navigationScanner.js" />
     <EmbeddedResource Include="Web\navigationFocus.js" />
     <EmbeddedResource Include="Web\navigationGeometry.js" />
+    <EmbeddedResource Include="Web\navigationController.js" />
     <EmbeddedResource Include="Web\launcherRuntime.js" />
   </ItemGroup>
 </Project>
+
