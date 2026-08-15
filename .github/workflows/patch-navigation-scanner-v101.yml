@@ -1,0 +1,40 @@
+name: Patch navigation scanner v1.0.1
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/patch-navigation-scanner-v101.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Apply verified scanner patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' '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' | base64 -d | gzip -dc > /tmp/navigationScanner-v101.patch
+          git apply --check /tmp/navigationScanner-v101.patch
+          git apply /tmp/navigationScanner-v101.patch
+          test "$(git hash-object Jellyfin.Plugin.QoL/Web/navigationScanner.js)" = "3ccef135b0862248d606b8be7acc84697910f9f5"
+
+      - name: Commit source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Jellyfin.Plugin.QoL/Web/navigationScanner.js
+          git commit -m "fix: refine scanner audit and active-page discovery"
+          git push origin HEAD:dev
