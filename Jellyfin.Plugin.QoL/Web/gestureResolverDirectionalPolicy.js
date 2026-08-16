@@ -2,8 +2,8 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.2.1';
-    const RESOLVER_VERSION = '1.1.3';
+    const VERSION = '1.2.2';
+    const RESOLVER_VERSION = '1.1.4';
     const LOG = '[JellyfinQoL.GestureResolverDirectionalPolicy]';
     const DIRECTIONS = Object.freeze(['UP', 'DOWN', 'LEFT', 'RIGHT']);
     const DIRECTION_SET = new Set(DIRECTIONS);
