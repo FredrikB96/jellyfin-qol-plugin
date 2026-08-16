@@ -1,9 +1,9 @@
-// Jellyfin QoL - Production AirNav Launcher / Client-Local Gate v1.0.2
+// Jellyfin QoL - Production AirNav Launcher / Client-Local Gate v1.0.3
 (function () {
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.0.2';
+    const VERSION = '1.0.3';
     const LEGACY_VERSION = '13.1';
     const LOG = '[JellyfinQoL.Launcher]';
     const ENROLLMENT_KEY = 'jellyfin-qol-airnav-client-v1';
@@ -145,6 +145,172 @@
 
     function helperEnabled() {
         return getRuntimeConfig()?.client?.helperEnabled === true;
+    }
+
+    function controllerState() {
+        try { return QoL.airNav?.getState?.() || null; }
+        catch (_) { return null; }
+    }
+
+    function currentModel(action = null) {
+        let model = null;
+        if (action && typeof QoL.airScanner?.prepareForInput === 'function') {
+            try { model = QoL.airScanner.prepareForInput(action) || null; }
+            catch (_) {}
+        }
+        if (!model) {
+            try { model = QoL.airScanner?.getModel?.() || null; }
+            catch (_) {}
+        }
+        return model;
+    }
+
+    function isPlayerRoute(route = null) {
+        const value = String(
+            route || location.hash || `${location.pathname}${location.search}` || ''
+        ).trim().toLowerCase();
+        return /^#\/video(?:[/?#]|$)/.test(value) || /^\/video(?:[/?#]|$)/.test(value);
+    }
+
+    function dispatchController(event, action = null) {
+        if (!QoL.airNav?.dispatch) {
+            return { handled:false, reason:'controller-not-ready' };
+        }
+        return QoL.airNav.dispatch(
+            action && action !== event?.action
+                ? { ...event, action }
+                : event
+        );
+    }
+
+    function routeMenuAction(event) {
+        const config = getRuntimeConfig() || {};
+        const model = currentModel('MENU');
+        const state = controllerState();
+        const mode = String(state?.mode || '').toUpperCase();
+        const surface = String(model?.activeSurfaceHint || '').toLowerCase();
+        const playerContext =
+            surface === 'player' ||
+            isPlayerRoute(model?.route) ||
+            mode === 'PLAYER_OWNED' ||
+            (mode === 'NATIVE_CONTROL' && isPlayerRoute(model?.route));
+
+        if (playerContext) {
+            if (config.menu?.inPlayer === 'disabled') {
+                return { handled:true, reason:'menu-player-disabled', event };
+            }
+            return dispatchController(event, 'TOGGLE_CONTROL');
+        }
+
+        if (config.menu?.onCard === 'disabled') {
+            return { handled:true, reason:'menu-page-disabled', event };
+        }
+
+        return dispatchController(event, 'ENTER_ACTIONS');
+    }
+
+    function routeHomeAction(event) {
+        const config = getRuntimeConfig() || {};
+        const behavior = String(config.home?.action || 'navigateRescan');
+        const homeRoute = '#/home';
+        const wasHome = String(location.hash || '').toLowerCase() === homeRoute;
+
+        try { QoL.airItemActions?.exit?.('home-action'); } catch (_) {}
+        try { QoL.airControlBridge?.exitNativeSurface?.(); } catch (_) {}
+
+        if (behavior === 'hardReload') {
+            if (!wasHome) {
+                location.hash = homeRoute;
+                setTimeout(() => {
+                    try { location.reload(); } catch (_) {}
+                }, 120);
+            } else {
+                try { location.reload(); } catch (_) {}
+            }
+
+            return {
+                handled:true,
+                reason:'home-hard-reload',
+                event,
+                route:homeRoute
+            };
+        }
+
+        if (!wasHome) location.hash = homeRoute;
+
+        if (behavior === 'navigateRescan') {
+            const scan = reason => {
+                try { QoL.airScanner?.scan?.(reason); } catch (_) {}
+            };
+            queueMicrotask(() => scan('home-action-microtask'));
+            setTimeout(() => scan('home-action-settled'), 120);
+        }
+
+        return {
+            handled:true,
+            reason: behavior === 'navigateOnly' ? 'home-navigate-only' : 'home-navigate-rescan',
+            event,
+            route:homeRoute
+        };
+    }
+
+    function routeNativeModalBack(event) {
+        const state = controllerState();
+        if (String(state?.mode || '').toUpperCase() !== 'NATIVE_CONTROL') return null;
+
+        const bridgeState = QoL.airControlBridge?.getState?.() || null;
+        if (bridgeState?.adjustableMode === true) return null;
+
+        const model = currentModel('BACK');
+        const modal = model?.modal || null;
+        if (!modal?.root?.isConnected) return null;
+
+        let entered = null;
+        if (!QoL.airModal?.isActive?.()) {
+            try {
+                entered = QoL.airModal?.enter?.(
+                    modal,
+                    null,
+                    'launcher:native-control-modal-back'
+                ) || null;
+            } catch (_) {}
+        }
+
+        if (!QoL.airModal?.isActive?.()) return null;
+
+        const modalResult = QoL.airModal.dispatch('BACK');
+        return {
+            handled:true,
+            reason:modalResult?.reason || 'native-control-modal-back',
+            event,
+            modal:modalResult || null,
+            entered,
+            modalId:modal.id || null
+        };
+    }
+
+    function dispatchRuntimeAction(event) {
+        const action = String(event?.action || '').toUpperCase();
+
+        // GestureResolver also publishes releases. Only the press side performs
+        // these high-level commands; release remains owned by the normal
+        // controller envelope so physical key state closes cleanly.
+        if (event?.phase !== 'release') {
+            if (action === 'BACK') {
+                const modalBack = routeNativeModalBack(event);
+                if (modalBack) return modalBack;
+            }
+
+            if (action === 'MENU') {
+                return routeMenuAction(event);
+            }
+
+            if (action === 'HOME') {
+                return routeHomeAction(event);
+            }
+        }
+
+        return dispatchController(event);
     }
 
     function requiredModules() {
@@ -329,7 +495,7 @@
             let deferred = null;
             try {
                 deferred = createDeferredModules();
-                QoL.airNavInput.setDispatcher(event => QoL.airNav.dispatch(event));
+                QoL.airNavInput.setDispatcher(dispatchRuntimeAction);
 
                 const universal = QoL.airNavInput.enableAdapter('universal', {
                     profileId:activeProfileId()
@@ -490,8 +656,7 @@
     }
 
     function dispatchTestAction(action, source = 'custom') {
-        if (!QoL.airNav?.dispatch) return { handled:false, reason:'controller-not-ready' };
-        return QoL.airNav.dispatch({
+        return dispatchRuntimeAction({
             action:String(action || '').toUpperCase(), phase:'press', source,
             deviceId:`${source}:test`, raw:{ test:true }, timestamp:performance.now()
         });
@@ -558,6 +723,8 @@
             retriesFailedStartup:true,
             windowsHelperOptional:true,
             windowsHelperRequired:false,
+            contextualCommandRouting:true,
+            nativeModalBackHandoff:true,
             deferredNavigationCluster:['scanner','geometry','focus','scroll','page-form-navigation','item-actions','controller'],
             state:getState()
         };
@@ -607,7 +774,8 @@
         defaultClientEnabled:false, clientStorageKey:ENROLLMENT_KEY,
         temporaryToggleButton:false,
         windowsHelperOptional:true,
-        windowsHelperRequired:false
+        windowsHelperRequired:false,
+        contextualCommandRouting:true
     });
 
     function begin() {
