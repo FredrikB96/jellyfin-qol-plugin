@@ -28,7 +28,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.2';
+  const VERSION = '1.0.3';
   const LEGACY_VERSION = '12.1.3';
   const LOG = '[JellyfinQoL.NavigationController]';
 
@@ -793,7 +793,7 @@
         // only while an adjustable control is actively being edited.
         if (
           event.action === NAV_ACTION.BACK &&
-          this.isPlayerRoute(model?.route) &&
+          this.getEffectiveSurface(model) === 'player' &&
           model?.modal?.root?.isConnected &&
           QoL.airModal?.isActive?.() &&
           QoL.airControlBridge?.getState?.()
