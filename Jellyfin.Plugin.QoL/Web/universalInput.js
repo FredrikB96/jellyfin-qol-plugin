@@ -2,12 +2,12 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.universalInputRuntime?.version === '1.0.1') {
+    if (QoL.universalInputRuntime?.version === '1.0.2') {
         QoL.universalInputRuntime.reconcileOwnership?.();
         return;
     }
 
-    const VERSION = '1.0.1';
+    const VERSION = '1.0.2';
     const LOG = '[JellyfinQoL.UniversalInput]';
     const DEFAULTS = Object.freeze({
         capture: true,
@@ -69,13 +69,43 @@
         return /^#\/video(?:[/?#]|$)/.test(value) || /^\/video(?:[/?#]|$)/.test(value);
     }
 
+    function getControllerMode() {
+        try {
+            const ownerState = QoL.airNav?.getState?.();
+            if (ownerState?.mode) return String(ownerState.mode).toUpperCase();
+        } catch (_) {}
+        try {
+            const runtimeState = QoL.navigationControllerRuntime?.getState?.();
+            if (runtimeState?.mode) return String(runtimeState.mode).toUpperCase();
+        } catch (_) {}
+        return '';
+    }
+
     function makeInputContext(base = {}) {
         const model = QoL.airScanner?.getModel?.() || null;
+        const controllerMode = getControllerMode();
+        const modalActive =
+            model?.activeSurfaceHint === 'modal' ||
+            (
+                model?.modal?.root?.isConnected &&
+                QoL.airModal?.isActive?.()
+            );
+        const playerSurface =
+            model?.activeSurfaceHint === 'player' ||
+            isPlayerRoute(model?.route);
         let inputContext = 'page';
 
-        if (model?.activeSurfaceHint === 'player' || isPlayerRoute(model?.route)) inputContext = 'player';
-        else if (model?.activeSurfaceHint === 'modal') inputContext = 'modal';
+        // Overlay/text ownership must win over the underlying player route.
+        // When AirNav explicitly takes native player control, expose a distinct
+        // context so one physical trigger can mean ACTIVATE there and
+        // PLAY_PAUSE while normal playback owns input.
+        if (modalActive) inputContext = 'modal';
         else if (base.textEntryActive === true) inputContext = 'text';
+        else if (playerSurface) {
+            inputContext = controllerMode === 'NATIVE_CONTROL'
+                ? 'player-control'
+                : 'player';
+        }
 
         return { ...base, inputContext };
     }
