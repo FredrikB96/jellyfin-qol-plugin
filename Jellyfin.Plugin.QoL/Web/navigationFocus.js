@@ -1,11 +1,11 @@
-// Jellyfin QoL / AirNav - Production Navigation Focus v1.0.0
+// Jellyfin QoL / AirNav - Production Navigation Focus v1.0.3
 // Owns one logical page selection and renders it against Scanner snapshots.
 // Device independent: no raw input, directional resolution, scrolling, or activation.
 
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.2';
+  const VERSION = '1.0.3';
   const LEGACY_VERSION = '7.4B';
   const LOG = '[JellyfinQoL.NavigationFocus]';
 
@@ -871,8 +871,32 @@
             transform: scale(var(--airnav-focus-scale, ${Number(this.cfg.scale)})) !important;
           }
 
+          /* Media-card labels are outside the visual artwork. Keep the
+             logical focus class on the complete card, but draw its focus
+             treatment around the image/poster surface only. */
+          .${className}.card {
+            outline: none !important;
+            box-shadow: none !important;
+          }
+
+          .${className}.card .cardBox.visualCardBox,
+          .${className}.card .cardBox:not(.visualCardBox) .cardScalable {
+            outline: ${Number(this.cfg.outlineWidthPx)}px solid
+              var(--theme-primary-color, var(--primary-accent-color, #00a4dc)) !important;
+            outline-offset: ${Number(this.cfg.outlineOffsetPx)}px !important;
+            border-radius: ${Number(this.cfg.borderRadiusPx)}px;
+            box-shadow: 0 0 18px rgba(0, 164, 220, .55) !important;
+            position: relative;
+            z-index: 20;
+            transition:
+              box-shadow ${Number(this.cfg.transitionMs)}ms ease,
+              outline-color ${Number(this.cfg.transitionMs)}ms ease;
+          }
+
           @media (prefers-reduced-motion: reduce) {
-            .${className} {
+            .${className},
+            .${className}.card .cardBox.visualCardBox,
+            .${className}.card .cardBox:not(.visualCardBox) .cardScalable {
               transition: none !important;
             }
           }
