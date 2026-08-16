@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.runtimeSettings?.version === '1.0.1') return;
+    if (QoL.runtimeSettings?.version === '1.0.2') return;
 
-    const VERSION = '1.0.1';
+    const VERSION = '1.0.2';
     const LOG = '[JellyfinQoL.RuntimeSettings]';
     const USER_SCHEMA_VERSION = 1;
     const CLIENT_SCHEMA_VERSION = 1;
@@ -533,19 +533,20 @@
     // Old QoL.airKeybinds remains authoritative until Part 3 takeover.
     // ---------------------------------------------------------------------
 
-    const ALL_INPUT_CONTEXTS = Object.freeze(['page', 'modal', 'text', 'player']);
+    const ALL_INPUT_CONTEXTS = Object.freeze(['page', 'modal', 'text', 'player', 'player-control']);
+    const NAVIGATION_INPUT_CONTEXTS = Object.freeze(['page', 'modal', 'text', 'player-control']);
     const PROFILE_ACTION_META = Object.freeze({
         UP: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true, contexts:ALL_INPUT_CONTEXTS }),
         DOWN: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true, contexts:ALL_INPUT_CONTEXTS }),
         LEFT: Object.freeze({ critical:true, allowRepeat:true, contexts:ALL_INPUT_CONTEXTS }),
         RIGHT: Object.freeze({ critical:true, allowRepeat:true, contexts:ALL_INPUT_CONTEXTS }),
-        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false, contexts:ALL_INPUT_CONTEXTS }),
+        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false, contexts:NAVIGATION_INPUT_CONTEXTS }),
         BACK: Object.freeze({ critical:true, allowRepeat:false, contexts:ALL_INPUT_CONTEXTS }),
         ENTER_ACTIONS: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
         MENU: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
         HOME: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
         PLAY_PAUSE: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['player']) }),
-        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['player', 'modal', 'text']) }),
+        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['player', 'player-control', 'modal', 'text']) }),
         TOGGLE_SEARCH_HANDOFF: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['page', 'text']) }),
         TOGGLE_SESSION_NAV: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS }),
         EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS })
@@ -1131,7 +1132,7 @@
         let legacyBindings = [];
         try { legacyBindings = legacy?.getBindings?.() || []; } catch (_) {}
         return {
-            version:'1.2.1-context',
+            version:'1.2.2-context',
             ready:missing.length === 0,
             mutationReady:missing.length === 0,
             readOnly:false,
@@ -1156,7 +1157,7 @@
         const activeProfileId = profileGetActiveProfileId();
         const profiles = profileItems();
         return {
-            version:'1.2.1-context',
+            version:'1.2.2-context',
             source:config?.source || null,
             authenticated:config?.authenticated === true,
             activeProfileId,
@@ -1176,7 +1177,7 @@
     }
 
     QoL.profileRuntime = Object.freeze({
-        version:'1.2.1-context',
+        version:'1.2.2-context',
         ACTION_META:PROFILE_ACTION_META,
         getState:profileGetState,
         getActiveProfileId:profileGetActiveProfileId,
