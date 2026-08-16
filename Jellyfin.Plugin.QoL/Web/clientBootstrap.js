@@ -2,15 +2,15 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.clientBootstrap?.version === '1.1.0') {
+    if (QoL.clientBootstrap?.version === '1.1.1') {
         QoL.clientBootstrap.start?.();
         return;
     }
 
-    const VERSION = '1.1.0';
+    const VERSION = '1.1.1';
     const LOG = '[JellyfinQoL.ClientBootstrap]';
     const RESOURCE_BASE = 'JellyfinQoL/Client/';
-    const PROFILE_COMPAT_VERSION = '1.0.0';
+    const PROFILE_COMPAT_VERSION = '1.0.1';
     const PROFILE_COMPAT_STORAGE_KEY = 'jellyfin-qol-airnav-keybinds-v1';
     const loadedResources = new Map();
     const profileCompatListeners = new Map();
@@ -279,6 +279,21 @@
         return String(binding?.gesture || (meta.allowRepeat ? 'repeat' : 'single')).toLowerCase();
     }
 
+    function profileCompatActionContexts(action) {
+        const contexts = profileRuntime()?.getActionMeta?.(action)?.contexts;
+        return new Set(
+            Array.isArray(contexts) && contexts.length
+                ? contexts.map(context => String(context || '').toLowerCase()).filter(Boolean)
+                : ['page', 'modal', 'text', 'player']
+        );
+    }
+
+    function profileCompatActionContextsOverlap(leftAction, rightAction) {
+        const left = profileCompatActionContexts(leftAction);
+        const right = profileCompatActionContexts(rightAction);
+        return [...left].some(context => right.has(context));
+    }
+
     function profileCompatAnalyzeConflicts(binding, profileId = null) {
         const normalized = profileCompatNormalizeBinding(binding, 0);
         if (!normalized) return [];
@@ -286,10 +301,12 @@
             .filter(item => item.id !== normalized.id)
             .filter(item => profileCompatSamePhysicalTrigger(item, normalized))
             .filter(item => profileCompatGesture(item) === profileCompatGesture(normalized))
+            .filter(item => profileCompatActionContextsOverlap(item.action, normalized.action))
             .map(item => ({
                 binding: clone(item),
                 sameAction: item.action === normalized.action,
                 sameGesture: true,
+                contextOverlap: true,
                 criticalAction: profileRuntime()?.getActionMeta?.(item.action)?.critical === true,
                 safeToKeepBoth: false
             }));

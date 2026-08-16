@@ -13,7 +13,7 @@
         { action:'LEFT', label:'Left', input:'ArrowLeft', gesture:'repeat', gestureCapable:false, allowRepeat:true },
         { action:'RIGHT', label:'Right', input:'ArrowRight', gesture:'repeat', gestureCapable:false, allowRepeat:true },
         { action:'ACTIVATE', label:'Activate / OK', input:'Enter', gesture:'single', gestureCapable:false, allowRepeat:false },
-        { action:'BACK', label:'Back', input:'BrowserBack', gesture:'single', gestureCapable:true, allowRepeat:false },
+        { action:'BACK', label:'Back', input:'Escape', gesture:'single', gestureCapable:true, allowRepeat:false },
         { action:'ENTER_ACTIONS', label:'Item actions', input:'KeyA', gesture:'single', gestureCapable:false, allowRepeat:false },
         { action:'MENU', label:'Menu', input:'ContextMenu', gesture:'single', gestureCapable:true, allowRepeat:false },
         { action:'HOME', label:'Home / Refresh', input:'BrowserHome', gesture:'single', gestureCapable:true, allowRepeat:false },
@@ -24,19 +24,103 @@
         { action:'EXIT_JELLYFIN', label:'Exit Jellyfin / HTPC', input:'BrowserBack', gesture:'long', gestureCapable:true, allowRepeat:false }
     ];
 
-    function makeDefaultProfile(id = 'default', name = 'Default') {
-        return {
-            id,
-            name,
-            bindings: Object.fromEntries(ACTIONS.map(meta => [meta.action, {
-                action: meta.action,
-                label: meta.label,
-                input: meta.input,
-                gesture: meta.gesture,
-                longPressMs: meta.gesture === 'long' ? 3000 : null,
-                allowRepeat: meta.allowRepeat
-            }]))
+    function makeBaseBindings() {
+        return Object.fromEntries(ACTIONS.map(meta => [meta.action, {
+            action: meta.action,
+            label: meta.label,
+            input: meta.input,
+            gesture: meta.gesture,
+            longPressMs: meta.gesture === 'long' ? 3000 : null,
+            allowRepeat: meta.allowRepeat
+        }]));
+    }
+
+    function makeKeyboardProfile(id = 'default', name = 'Default') {
+        const bindings = makeBaseBindings();
+        bindings.BACK = {
+            ...bindings.BACK,
+            id: 'bind:back:keyboard:keydown-escape-escape',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'Escape',
+                key: 'Escape',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
         };
+        return { id, name, bindings };
+    }
+
+    function makeAirNavProfile(id = 'airnav', name = 'Airnav') {
+        const bindings = makeBaseBindings();
+        bindings.ACTIVATE = {
+            ...bindings.ACTIVATE,
+            id: 'bind:activate:keyboard:keydown-enter-enter',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'Enter',
+                key: 'Enter',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        bindings.BACK.input = 'BrowserBack';
+        bindings.ENTER_ACTIONS = {
+            ...bindings.ENTER_ACTIONS,
+            input: 'ContextMenu',
+            id: 'bind:enter_actions:keyboard:keydown-contextmenu-contextmenu',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'ContextMenu',
+                key: 'ContextMenu',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        bindings.MENU = {
+            ...bindings.MENU,
+            input: '',
+            id: `runtime:${id}:menu`,
+            adapter: null,
+            deviceMatch: '*',
+            trigger: null
+        };
+        bindings.PLAY_PAUSE = {
+            ...bindings.PLAY_PAUSE,
+            input: 'Enter',
+            id: 'bind:play_pause:keyboard:keydown-enter-enter',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'Enter',
+                key: 'Enter',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        bindings.TOGGLE_CONTROL = {
+            ...bindings.TOGGLE_CONTROL,
+            input: 'ContextMenu',
+            id: 'bind:toggle_control:keyboard:keydown-contextmenu-contextmenu',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'ContextMenu',
+                key: 'ContextMenu',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        return { id, name, bindings };
+    }
+
+    function makeDefaultProfile(id = 'default', name = id === 'airnav' ? 'Airnav' : 'Default') {
+        return id === 'airnav'
+            ? makeAirNavProfile(id, name)
+            : makeKeyboardProfile(id, name);
     }
 
     const USER_DEFAULTS = {
@@ -48,7 +132,7 @@
         focus: { scale: 1.045, applyScale: true, outlineWidthPx: 3, outlineOffsetPx: 3, borderRadiusPx: 12, transitionMs: 120 },
         scroll: { behavior: 'smooth', horizontalOnlyWhenNeeded: true, verticalCenter: true, headerSelectionScrollTop: true, horizontalTriggerInsetPx: 42, horizontalRestInsetPx: 88 },
         gestures: { doublePressMs: 250, longPressMs: 3000, repeatDelayMs: 360, repeatIntervalMs: 115, accelerationEnabled: true, minRepeatIntervalMs: 55 },
-        profiles: { switchMode: 'combination', syncAcrossUser: true, activeProfileId: 'default', items: { default: makeDefaultProfile() } },
+        profiles: { switchMode: 'combination', syncAcrossUser: true, activeProfileId: 'default', items: { default: makeDefaultProfile(), airnav: makeDefaultProfile('airnav', 'Airnav') } },
         quickActions: { entry: 'menu', defaultAction: 'play' },
         menu: { onCard: 'quickActions', inPlayer: 'toggleControl' },
         back: { page: 'homeFallback', modal: 'close', player: 'closeContextThenExit' },
@@ -234,13 +318,13 @@
         userState = merge(baseline, stored);
         normalizeProfiles();
         savedUserState = clone(userState);
-        console.log(LOG, 'User settings loaded.', { user: userState, globalDefaults, client: clientState });
+        console.log(LOG, 'User settings loaded.', { user: userState, globalDefaults, client:clientState });
     }
 
     function normalizeProfiles() {
         userState.profiles = merge(USER_DEFAULTS.profiles, userState.profiles || {});
         if (!isObject(userState.profiles.items) || !Object.keys(userState.profiles.items).length) {
-            userState.profiles.items = { default: makeDefaultProfile() };
+            userState.profiles.items = clone(USER_DEFAULTS.profiles.items);
         }
         Object.entries(userState.profiles.items).forEach(([id, profile]) => {
             const base = makeDefaultProfile(id, profile?.name || id);

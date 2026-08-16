@@ -2,8 +2,8 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    const VERSION = '1.2.1';
-    const RESOLVER_VERSION = '1.1.3';
+    const VERSION = '1.2.4';
+    const RESOLVER_VERSION = '1.1.6';
     const LOG = '[JellyfinQoL.GestureResolverDirectionalPolicy]';
     const DIRECTIONS = Object.freeze(['UP', 'DOWN', 'LEFT', 'RIGHT']);
     const DIRECTION_SET = new Set(DIRECTIONS);
@@ -170,6 +170,25 @@
 
             const state = this.activePresses?.get(identity) || null;
             if (!state?.pressed || !state.repeatMode || !state.activeBinding) return result;
+
+            // PLAYER_OWNED is an explicit controller handoff to Jellyfin's
+            // native playback shortcuts. A directional binding existing in the
+            // AirNav profile must not make the physical arrow ours in that mode.
+            // Once F6 takeover is active, ControlBridge handles the same action
+            // and the normal ownership path below remains in effect.
+            if (
+                input?.context?.inputContext === 'player' &&
+                result?.downstream?.reason === 'player-owned'
+            ) {
+                state.ownedPhysical = false;
+                state.downstreamHandled = false;
+                return {
+                    ...result,
+                    handled: false,
+                    claimed: false,
+                    reason: 'player-owned-pass-through'
+                };
+            }
 
             // Directional input owns the physical button as soon as the binding
             // matches. Do not depend on Controller.handled: Geometry can return

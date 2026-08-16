@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.runtimeSettings?.version === '1.0.0') return;
+    if (QoL.runtimeSettings?.version === '1.0.4') return;
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.4';
     const LOG = '[JellyfinQoL.RuntimeSettings]';
     const USER_SCHEMA_VERSION = 1;
     const CLIENT_SCHEMA_VERSION = 1;
@@ -20,7 +20,7 @@
         { action:'LEFT', label:'Left', input:'ArrowLeft', gesture:'repeat', allowRepeat:true },
         { action:'RIGHT', label:'Right', input:'ArrowRight', gesture:'repeat', allowRepeat:true },
         { action:'ACTIVATE', label:'Activate / OK', input:'Enter', gesture:'single', allowRepeat:false },
-        { action:'BACK', label:'Back', input:'BrowserBack', gesture:'single', allowRepeat:false },
+        { action:'BACK', label:'Back', input:'Escape', gesture:'single', allowRepeat:false },
         { action:'ENTER_ACTIONS', label:'Item actions', input:'KeyA', gesture:'single', allowRepeat:false },
         { action:'MENU', label:'Menu', input:'ContextMenu', gesture:'single', allowRepeat:false },
         { action:'HOME', label:'Home / Refresh', input:'BrowserHome', gesture:'single', allowRepeat:false },
@@ -31,19 +31,103 @@
         { action:'EXIT_JELLYFIN', label:'Exit Jellyfin / HTPC', input:'BrowserBack', gesture:'long', allowRepeat:false }
     ];
 
-    function makeDefaultProfile(id = 'default', name = 'Default') {
-        return {
-            id,
-            name,
-            bindings: Object.fromEntries(ACTIONS.map(meta => [meta.action, {
-                action: meta.action,
-                label: meta.label,
-                input: meta.input,
-                gesture: meta.gesture,
-                longPressMs: meta.gesture === 'long' ? 3000 : null,
-                allowRepeat: meta.allowRepeat
-            }]))
+    function makeBaseBindings() {
+        return Object.fromEntries(ACTIONS.map(meta => [meta.action, {
+            action: meta.action,
+            label: meta.label,
+            input: meta.input,
+            gesture: meta.gesture,
+            longPressMs: meta.gesture === 'long' ? 3000 : null,
+            allowRepeat: meta.allowRepeat
+        }]));
+    }
+
+    function makeKeyboardProfile(id = 'default', name = 'Default') {
+        const bindings = makeBaseBindings();
+        bindings.BACK = {
+            ...bindings.BACK,
+            id: 'bind:back:keyboard:keydown-escape-escape',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'Escape',
+                key: 'Escape',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
         };
+        return { id, name, bindings };
+    }
+
+    function makeAirNavProfile(id = 'airnav', name = 'Airnav') {
+        const bindings = makeBaseBindings();
+        bindings.ACTIVATE = {
+            ...bindings.ACTIVATE,
+            id: 'bind:activate:keyboard:keydown-enter-enter',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'Enter',
+                key: 'Enter',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        bindings.BACK.input = 'BrowserBack';
+        bindings.ENTER_ACTIONS = {
+            ...bindings.ENTER_ACTIONS,
+            input: 'ContextMenu',
+            id: 'bind:enter_actions:keyboard:keydown-contextmenu-contextmenu',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'ContextMenu',
+                key: 'ContextMenu',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        bindings.MENU = {
+            ...bindings.MENU,
+            input: '',
+            id: `runtime:${id}:menu`,
+            adapter: null,
+            deviceMatch: '*',
+            trigger: null
+        };
+        bindings.PLAY_PAUSE = {
+            ...bindings.PLAY_PAUSE,
+            input: 'Enter',
+            id: 'bind:play_pause:keyboard:keydown-enter-enter',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'Enter',
+                key: 'Enter',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        bindings.TOGGLE_CONTROL = {
+            ...bindings.TOGGLE_CONTROL,
+            input: 'ContextMenu',
+            id: 'bind:toggle_control:keyboard:keydown-contextmenu-contextmenu',
+            adapter: 'keyboard',
+            deviceMatch: '*',
+            trigger: {
+                type: 'keydown',
+                code: 'ContextMenu',
+                key: 'ContextMenu',
+                modifiers: { ctrl:false, alt:false, shift:false, meta:false }
+            }
+        };
+        return { id, name, bindings };
+    }
+
+    function makeDefaultProfile(id = 'default', name = id === 'airnav' ? 'Airnav' : 'Default') {
+        return id === 'airnav'
+            ? makeAirNavProfile(id, name)
+            : makeKeyboardProfile(id, name);
     }
 
     const USER_DEFAULTS = Object.freeze({
@@ -55,7 +139,7 @@
         focus: { scale: 1.045, applyScale: true, outlineWidthPx: 3, outlineOffsetPx: 3, borderRadiusPx: 12, transitionMs: 120 },
         scroll: { behavior: 'smooth', horizontalOnlyWhenNeeded: true, verticalCenter: true, headerSelectionScrollTop: true, horizontalTriggerInsetPx: 42, horizontalRestInsetPx: 88 },
         gestures: { doublePressMs: 250, longPressMs: 3000, repeatDelayMs: 360, repeatIntervalMs: 115, accelerationEnabled: true, minRepeatIntervalMs: 55 },
-        profiles: { switchMode: 'combination', syncAcrossUser: true, activeProfileId: 'default', items: { default: makeDefaultProfile() } },
+        profiles: { switchMode: 'combination', syncAcrossUser: true, activeProfileId: 'default', items: { default: makeDefaultProfile(), airnav: makeDefaultProfile('airnav', 'Airnav') } },
         quickActions: { entry: 'menu', defaultAction: 'play' },
         menu: { onCard: 'quickActions', inPlayer: 'toggleControl' },
         back: { page: 'homeFallback', modal: 'close', player: 'closeContextThenExit' },
@@ -244,7 +328,7 @@
     function normalizeProfiles(nextUserState, nextClientState) {
         nextUserState.profiles = merge(USER_DEFAULTS.profiles, nextUserState.profiles || {});
         if (!isObject(nextUserState.profiles.items) || !Object.keys(nextUserState.profiles.items).length) {
-            nextUserState.profiles.items = { default: makeDefaultProfile() };
+            nextUserState.profiles.items = clone(USER_DEFAULTS.profiles.items);
         }
 
         Object.entries(nextUserState.profiles.items).forEach(([id, profile]) => {
@@ -533,21 +617,23 @@
     // Old QoL.airKeybinds remains authoritative until Part 3 takeover.
     // ---------------------------------------------------------------------
 
+    const ALL_INPUT_CONTEXTS = Object.freeze(['page', 'modal', 'text', 'player', 'player-control']);
+    const NAVIGATION_INPUT_CONTEXTS = Object.freeze(['page', 'modal', 'text', 'player-control']);
     const PROFILE_ACTION_META = Object.freeze({
-        UP: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true }),
-        DOWN: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true }),
-        LEFT: Object.freeze({ critical:true, allowRepeat:true }),
-        RIGHT: Object.freeze({ critical:true, allowRepeat:true }),
-        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false }),
-        BACK: Object.freeze({ critical:true, allowRepeat:false }),
-        ENTER_ACTIONS: Object.freeze({ critical:false, allowRepeat:false }),
-        MENU: Object.freeze({ critical:false, allowRepeat:false }),
-        HOME: Object.freeze({ critical:false, allowRepeat:false }),
-        PLAY_PAUSE: Object.freeze({ critical:false, allowRepeat:false }),
-        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true }),
-        TOGGLE_SEARCH_HANDOFF: Object.freeze({ critical:false, allowRepeat:false, global:true }),
-        TOGGLE_SESSION_NAV: Object.freeze({ critical:false, allowRepeat:false, global:true }),
-        EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true })
+        UP: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true, contexts:ALL_INPUT_CONTEXTS }),
+        DOWN: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true, contexts:ALL_INPUT_CONTEXTS }),
+        LEFT: Object.freeze({ critical:true, allowRepeat:true, contexts:ALL_INPUT_CONTEXTS }),
+        RIGHT: Object.freeze({ critical:true, allowRepeat:true, contexts:ALL_INPUT_CONTEXTS }),
+        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false, contexts:NAVIGATION_INPUT_CONTEXTS }),
+        BACK: Object.freeze({ critical:true, allowRepeat:false, contexts:ALL_INPUT_CONTEXTS }),
+        ENTER_ACTIONS: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
+        MENU: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page', 'player', 'player-control']) }),
+        HOME: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS }),
+        PLAY_PAUSE: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['player']) }),
+        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['player', 'player-control', 'modal', 'text']) }),
+        TOGGLE_SEARCH_HANDOFF: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['page', 'text']) }),
+        TOGGLE_SESSION_NAV: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS }),
+        EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS })
     });
 
     const profileMutationListeners = new Map();
@@ -793,6 +879,17 @@
         return String(binding?.gesture || (profileGetActionMeta(binding?.action).allowRepeat ? 'repeat' : 'single')).toLowerCase();
     }
 
+    function profileActionContexts(action) {
+        const contexts = PROFILE_ACTION_META[String(action || '').toUpperCase()]?.contexts;
+        return new Set(Array.isArray(contexts) && contexts.length ? contexts : ALL_INPUT_CONTEXTS);
+    }
+
+    function profileActionContextsOverlap(leftAction, rightAction) {
+        const left = profileActionContexts(leftAction);
+        const right = profileActionContexts(rightAction);
+        return [...left].some(context => right.has(context));
+    }
+
     function profileAnalyzeConflicts(binding, profileId = null) {
         const normalized = profileNormalizeBinding(binding, 0);
         if (!normalized) return [];
@@ -800,7 +897,8 @@
             .filter(item => item.id !== normalized.id)
             .filter(item => profileSamePhysicalTrigger(item, normalized))
             .filter(item => profileGesture(item) === profileGesture(normalized))
-            .map(item => ({ binding:clone(item), sameAction:item.action === normalized.action, sameGesture:true, criticalAction:profileGetActionMeta(item.action).critical === true, safeToKeepBoth:false }));
+            .filter(item => profileActionContextsOverlap(item.action, normalized.action))
+            .map(item => ({ binding:clone(item), sameAction:item.action === normalized.action, sameGesture:true, contextOverlap:true, criticalAction:profileGetActionMeta(item.action).critical === true, safeToKeepBoth:false }));
     }
 
     function profileGetCriticalActionsWithoutBindings(profileId = null, bindingsOverride = null) {
@@ -1118,7 +1216,7 @@
         let legacyBindings = [];
         try { legacyBindings = legacy?.getBindings?.() || []; } catch (_) {}
         return {
-            version:'1.2.0-mutate',
+            version:'1.2.4-default-profiles',
             ready:missing.length === 0,
             mutationReady:missing.length === 0,
             readOnly:false,
@@ -1129,7 +1227,7 @@
             activeProfileId:profileGetActiveProfileId(),
             productionBindingCount:profileGetBindings().length,
             legacyBindingCount:Array.isArray(legacyBindings) ? legacyBindings.length : null,
-            conflictRule:'same-physical-trigger+same-gesture',
+            conflictRule:'same-physical-trigger+same-gesture+overlapping-input-context',
             gestureResolutionActive:false,
             serverPersistence:{
                 lastPersistAt:profileLastPersistAt,
@@ -1143,7 +1241,7 @@
         const activeProfileId = profileGetActiveProfileId();
         const profiles = profileItems();
         return {
-            version:'1.2.0-mutate',
+            version:'1.2.4-default-profiles',
             source:config?.source || null,
             authenticated:config?.authenticated === true,
             activeProfileId,
@@ -1155,7 +1253,7 @@
             persistenceReady:true,
             takeoverActive:false,
             compatibilityReady:true,
-            conflictRule:'same-physical-trigger+same-gesture',
+            conflictRule:'same-physical-trigger+same-gesture+overlapping-input-context',
             gestureResolutionActive:false,
             lastPersistAt:profileLastPersistAt,
             lastPersistError:profileLastPersistError ? String(profileLastPersistError?.message || profileLastPersistError) : null
@@ -1163,7 +1261,7 @@
     }
 
     QoL.profileRuntime = Object.freeze({
-        version:'1.2.0-mutate',
+        version:'1.2.4-default-profiles',
         ACTION_META:PROFILE_ACTION_META,
         getState:profileGetState,
         getActiveProfileId:profileGetActiveProfileId,

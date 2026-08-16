@@ -2,12 +2,12 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.universalInputRuntime?.version === '1.0.0') {
+    if (QoL.universalInputRuntime?.version === '1.0.2') {
         QoL.universalInputRuntime.reconcileOwnership?.();
         return;
     }
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.2';
     const LOG = '[JellyfinQoL.UniversalInput]';
     const DEFAULTS = Object.freeze({
         capture: true,
@@ -60,6 +60,54 @@
         const textEntryActive = isTextEntry(active);
         const searchEntryActive = textEntryActive && isSearchEntry(active);
         return { textEntryActive, searchEntryActive };
+    }
+
+    function isPlayerRoute(route = null) {
+        const value = String(
+            route || location.hash || `${location.pathname}${location.search}` || ''
+        ).trim().toLowerCase();
+        return /^#\/video(?:[/?#]|$)/.test(value) || /^\/video(?:[/?#]|$)/.test(value);
+    }
+
+    function getControllerMode() {
+        try {
+            const ownerState = QoL.airNav?.getState?.();
+            if (ownerState?.mode) return String(ownerState.mode).toUpperCase();
+        } catch (_) {}
+        try {
+            const runtimeState = QoL.navigationControllerRuntime?.getState?.();
+            if (runtimeState?.mode) return String(runtimeState.mode).toUpperCase();
+        } catch (_) {}
+        return '';
+    }
+
+    function makeInputContext(base = {}) {
+        const model = QoL.airScanner?.getModel?.() || null;
+        const controllerMode = getControllerMode();
+        const modalActive =
+            model?.activeSurfaceHint === 'modal' ||
+            (
+                model?.modal?.root?.isConnected &&
+                QoL.airModal?.isActive?.()
+            );
+        const playerSurface =
+            model?.activeSurfaceHint === 'player' ||
+            isPlayerRoute(model?.route);
+        let inputContext = 'page';
+
+        // Overlay/text ownership must win over the underlying player route.
+        // When AirNav explicitly takes native player control, expose a distinct
+        // context so one physical trigger can mean ACTIVATE there and
+        // PLAY_PAUSE while normal playback owns input.
+        if (modalActive) inputContext = 'modal';
+        else if (base.textEntryActive === true) inputContext = 'text';
+        else if (playerSurface) {
+            inputContext = controllerMode === 'NATIVE_CONTROL'
+                ? 'player-control'
+                : 'player';
+        }
+
+        return { ...base, inputContext };
     }
 
     function isTextEntry(element) {
@@ -380,9 +428,9 @@
 
         keyboardEnvelope(event, phase) {
             const modifiers = modifiersFromKeyboardEvent(event);
-            const context = getTextContext(
+            const context = makeInputContext(getTextContext(
                 isTextEntry(event.target) ? event.target : (isTextEntry(document.activeElement) ? document.activeElement : null)
-            );
+            ));
             return {
                 adapter: 'keyboard',
                 source: 'keyboard',
@@ -472,6 +520,7 @@
         pointerEnvelope(event, phase) {
             const pointerType = event.pointerType || (event.type.startsWith('mouse') ? 'mouse' : 'mouse');
             const button = Number(event.button);
+            const textContext = getTextContext(isTextEntry(event.target) ? event.target : null);
             return {
                 adapter: 'pointer',
                 source: 'pointer',
@@ -483,11 +532,10 @@
                     button,
                     pointerType
                 },
-                context: {
-                    textEntryActive: false,
-                    searchEntryActive: false,
+                context: makeInputContext({
+                    ...textContext,
                     nativeNavigationRisk: nativeNavigationRisk({ source: 'pointer', button })
-                },
+                }),
                 raw: {
                     button,
                     pointerType,
@@ -589,7 +637,7 @@
             }
 
             if (!this.started) return;
-            const context = getTextContext(isTextEntry(event.target) ? event.target : null);
+            const context = makeInputContext(getTextContext(isTextEntry(event.target) ? event.target : null));
             const result = this.dispatchPhysical({
                 adapter: 'wheel',
                 source: 'wheel',
@@ -750,7 +798,7 @@
                     deviceMatch: '*',
                     phase,
                     trigger: { type: 'gamepad-button', button: index, threshold },
-                    context: { textEntryActive: false, searchEntryActive: false, nativeNavigationRisk: null },
+                    context: makeInputContext({ textEntryActive: false, searchEntryActive: false, nativeNavigationRisk: null }),
                     raw: {
                         button: index,
                         value,
@@ -794,7 +842,7 @@
                             threshold: pressThreshold,
                             releaseThreshold
                         },
-                        context: { textEntryActive: false, searchEntryActive: false, nativeNavigationRisk: null },
+                        context: makeInputContext({ textEntryActive: false, searchEntryActive: false, nativeNavigationRisk: null }),
                         raw: {
                             axis,
                             direction,

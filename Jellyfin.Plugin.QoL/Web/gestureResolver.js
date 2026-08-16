@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.gestureResolverRuntime?.version === '1.0.2') return;
+    if (QoL.gestureResolverRuntime?.version === '1.0.3') return;
 
-    const VERSION = '1.0.2';
+    const VERSION = '1.0.3';
     const LOG = '[JellyfinQoL.GestureResolver]';
     const VALID_GESTURES = new Set(['single', 'double', 'long', 'repeat']);
     const DEFAULT_TIMINGS = Object.freeze({
@@ -283,6 +283,10 @@
         const fallbackGesture = meta.allowRepeat ? 'repeat' : 'single';
         const gesture = normalizeGesture(value.gesture, fallbackGesture);
 
+        const contexts = Array.isArray(meta.contexts) && meta.contexts.length
+            ? [...new Set(meta.contexts.map(context => String(context || '').toLowerCase()).filter(Boolean))]
+            : ['page', 'modal', 'text', 'player'];
+
         return {
             id: value.id || `gesture:${profileId || 'default'}:${action.toLowerCase()}:${adapter}:${index}`,
             action,
@@ -294,7 +298,8 @@
             allowRepeat: typeof value.allowRepeat === 'boolean' ? value.allowRepeat : meta.allowRepeat !== false,
             profileId: value.profileId || profileId || null,
             global: value.global === true || meta.global === true,
-            textHandoff: value.textHandoff === true || meta.textHandoff === true
+            textHandoff: value.textHandoff === true || meta.textHandoff === true,
+            contexts
         };
     }
 
@@ -359,7 +364,12 @@
         const context = {
             textEntryActive: event.context?.textEntryActive ?? raw.textEntryActive ?? false,
             searchEntryActive: event.context?.searchEntryActive ?? raw.searchEntryActive ?? false,
-            nativeNavigationRisk: event.context?.nativeNavigationRisk ?? raw.nativeNavigationRisk ?? null
+            nativeNavigationRisk: event.context?.nativeNavigationRisk ?? raw.nativeNavigationRisk ?? null,
+            inputContext: String(
+                event.context?.inputContext ||
+                raw.inputContext ||
+                ((event.context?.textEntryActive ?? raw.textEntryActive) ? 'text' : 'page')
+            ).toLowerCase()
         };
 
         return {
@@ -388,6 +398,10 @@
     }
 
     function bindingEligibleForContext(binding, input) {
+        const inputContext = String(input?.context?.inputContext || 'page').toLowerCase();
+        if (Array.isArray(binding?.contexts) && binding.contexts.length && !binding.contexts.includes(inputContext)) {
+            return false;
+        }
         if (!input?.context?.textEntryActive) return true;
         if (binding.global === true) return true;
         return binding.textHandoff === true && input.context.searchEntryActive === true;
@@ -985,7 +999,9 @@
                 return {
                     handled: false,
                     claimed: false,
-                    reason: 'context-owned-by-text-entry',
+                    reason: input.context?.textEntryActive
+                        ? 'context-owned-by-text-entry'
+                        : 'binding-not-active-in-input-context',
                     physicalMatches: matches.physicalMatches.length
                 };
             }

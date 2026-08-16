@@ -15,7 +15,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.9';
+  const VERSION = '1.0.10';
   const LEGACY_VERSION = '10.2k';
   const MODEL_SCHEMA_VERSION = 1;
   const LOG = '[JellyfinQoL.NavigationScanner]';
@@ -848,7 +848,7 @@
 
         const route = this.detectRoute();
         const modal = this.scanActiveOverlay();
-        const playerActive = this.isAnyRendered(document.querySelectorAll(this.cfg.playerActiveSelector));
+        const playerActive = this.isPlayerSurfaceActive(route);
         const header = modal ? null : this.scanHeader();
         const sections = modal
           ? []
@@ -1019,9 +1019,7 @@
         // fall back to the normal structural scan.
         const currentRoute = this.detectRoute();
         const modalNow = this.scanActiveOverlay();
-        const playerActive = this.isAnyRendered(
-          document.querySelectorAll(this.cfg.playerActiveSelector)
-        );
+        const playerActive = this.isPlayerSurfaceActive(currentRoute);
         const surfaceNow = playerActive
           ? 'player'
           : (modalNow ? 'modal' : 'page');
@@ -1254,9 +1252,7 @@
         } else {
           const currentRoute = this.detectRoute();
           const modalNow = this.scanActiveOverlay();
-          const playerActive = this.isAnyRendered(
-            document.querySelectorAll(this.cfg.playerActiveSelector)
-          );
+          const playerActive = this.isPlayerSurfaceActive(currentRoute);
           const surfaceNow = playerActive
             ? 'player'
             : (modalNow ? 'modal' : 'page');
@@ -1428,6 +1424,37 @@
       // ------------------------------------------------------------------
       detectRoute() {
         return location.hash || `${location.pathname}${location.search}` || '/';
+      }
+
+      isPlayerRoute(route = this.detectRoute()) {
+        const value = String(route || '').trim().toLowerCase();
+        return (
+          /^#\/video(?:[/?#]|$)/.test(value) ||
+          /^\/video(?:[/?#]|$)/.test(value)
+        );
+      }
+
+      isPlayerSurfaceActive(route = this.detectRoute()) {
+        if (
+          this.isAnyRendered(
+            document.querySelectorAll(
+              this.cfg.playerActiveSelector
+            )
+          )
+        ) {
+          return true;
+        }
+
+        // Jellyfin Media Player can render video through its native mpv layer.
+        // When the web OSD auto-hides, the video/OSD nodes may have no browser
+        // geometry even though playback and the player shell are still active.
+        // Keep player ownership for that hidden-OSD state, but require both the
+        // playback route and a connected player shell so stale routes do not
+        // retain ownership after the player has been torn down.
+        return (
+          this.isPlayerRoute(route) &&
+          !!this.findPlayerRoot()?.isConnected
+        );
       }
 
       scanHeader() {
