@@ -1,4 +1,4 @@
-# Build and install — Jellyfin QoL Plugin final settings v2
+# Build and install — Jellyfin QoL Plugin
 
 ## Build
 
@@ -12,6 +12,28 @@ dotnet publish .\Jellyfin.Plugin.QoL\Jellyfin.Plugin.QoL.csproj -c Release
 Output:
 
 `Jellyfin.Plugin.QoL/bin/Release/net9.0/publish/Jellyfin.Plugin.QoL.dll`
+
+To create the same versioned ZIP shape used by the Jellyfin repository:
+
+```powershell
+.\scripts\build-release.ps1
+```
+
+The script reads the four-part version from the project unless one is supplied
+explicitly, packages only `Jellyfin.Plugin.QoL.dll` at the ZIP root, and prints
+the MD5 checksum expected by Jellyfin repository manifests.
+
+## Install from the public repository
+
+Add this URL under `Dashboard -> Plugins -> Repositories`:
+
+```text
+https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/Main/repository/manifest.json
+```
+
+Install **Jellyfin QoL Plugin** from the **General** catalog category and restart
+Jellyfin. The manifest and versioned GitHub release must both be publicly
+reachable; private GitHub assets cannot be installed anonymously by Jellyfin.
 
 ## Manual Docker install for development
 

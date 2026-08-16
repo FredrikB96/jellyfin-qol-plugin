@@ -42,8 +42,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Require tagged commit on Main
-        if: github.event_name == 'push'
+      - name: Require release commit on Main
         shell: bash
         run: |
           git fetch origin Main
@@ -100,6 +99,7 @@ jobs:
             gh release create "$TAG" \
               "./artifacts/release/$ZIP" \
               "./artifacts/release/$ZIP.md5" \
+              --target "$GITHUB_SHA" \
               --title "Jellyfin QoL $TAG" \
               --generate-notes
           fi
@@ -133,9 +133,12 @@ jobs:
           existing = [v for v in plugin.get('versions', []) if v.get('version') != version]
           plugin['versions'] = [release, *existing]
           plugin['owner'] = repo.split('/')[0]
-          plugin['imageUrl'] = f'https://raw.githubusercontent.com/{repo}/Main/repository/jellyfin-qol-logo.jpg'
+          plugin['imageUrl'] = f'https://raw.githubusercontent.com/{repo}/Main/repository/jellyfin-qol-logo.png'
           path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
           PY
+
+      - name: Validate Jellyfin repository manifest
+        run: python3 ./scripts/validate-manifest.py ./repository/manifest.json
 
       - name: Commit manifest to Main
         shell: bash

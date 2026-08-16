@@ -6,7 +6,7 @@
     "description": "Controller-independent Air Navigation and quality-of-life controls for Jellyfin Web/HTPC clients.",
     "overview": "Air Navigation and QoL controls for Jellyfin",
     "owner": "FredrikB96",
-    "imageUrl": "https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/main/repository/jellyfin-qol-logo.jpg",
+    "imageUrl": "https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/Main/repository/jellyfin-qol-logo.png",
     "versions": []
   }
 ]

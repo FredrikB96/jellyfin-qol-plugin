@@ -6,7 +6,7 @@
     "description": "Controller-independent Air Navigation and quality-of-life controls for Jellyfin Web/HTPC clients.",
     "overview": "Air Navigation and QoL controls for Jellyfin",
     "owner": "YOUR_GITHUB_OR_REPOSITORY_NAME",
-    "imageUrl": "https://YOUR-HOST/jellyfin-qol-logo.jpg",
+    "imageUrl": "https://YOUR-HOST/jellyfin-qol-logo.png",
     "versions": [
       {
         "version": "1.0.0.0",
