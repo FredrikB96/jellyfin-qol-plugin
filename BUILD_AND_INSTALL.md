@@ -28,7 +28,7 @@ the MD5 checksum expected by Jellyfin repository manifests.
 Add this URL under `Dashboard -> Plugins -> Repositories`:
 
 ```text
-https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/Main/repository/manifest.json
+https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/refs/heads/Main/repository/manifest.json
 ```
 
 Install **Jellyfin QoL Plugin** from the **General** catalog category and restart

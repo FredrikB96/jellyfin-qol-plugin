@@ -133,7 +133,7 @@ jobs:
           existing = [v for v in plugin.get('versions', []) if v.get('version') != version]
           plugin['versions'] = [release, *existing]
           plugin['owner'] = repo.split('/')[0]
-          plugin['imageUrl'] = f'https://raw.githubusercontent.com/{repo}/Main/repository/jellyfin-qol-logo.png'
+          plugin['imageUrl'] = f'https://raw.githubusercontent.com/{repo}/refs/heads/Main/repository/jellyfin-qol-logo.png'
           path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
           PY
 

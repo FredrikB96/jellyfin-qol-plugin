@@ -52,7 +52,7 @@ The release workflow creates:
 ## Jellyfin repository URL
 
 ```text
-https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/Main/repository/manifest.json
+https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/refs/heads/Main/repository/manifest.json
 ```
 
 The GitHub repository must be public before Jellyfin can fetch this manifest, its logo, and release ZIP without authentication. Review the repository for private material and decide what to do with the self-hosted deployment runner before changing visibility.
