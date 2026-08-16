@@ -44,7 +44,6 @@
     <None Remove="Web\navigationModal.js" />
     <None Remove="Web\navigationController.js" />
     <None Remove="Web\launcherRuntime.js" />
-    <None Remove="Web\navigationModalBackGuard.js" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.html" />
     <EmbeddedResource Include="Web\userSettingsPage.js" />
@@ -68,6 +67,5 @@
     <EmbeddedResource Include="Web\navigationModal.js" />
     <EmbeddedResource Include="Web\navigationController.js" />
     <EmbeddedResource Include="Web\launcherRuntime.js" />
-    <EmbeddedResource Include="Web\navigationModalBackGuard.js" />
   </ItemGroup>
 </Project>
