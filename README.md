@@ -29,7 +29,7 @@
 2. Add a repository named `Jellyfin QoL` with this URL:
 
    ```text
-   https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/Main/repository/manifest.json
+   https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/refs/heads/Main/repository/manifest.json
    ```
 
 3. Open the plugin catalog, find **Jellyfin QoL Plugin** under **General**, and install it.
