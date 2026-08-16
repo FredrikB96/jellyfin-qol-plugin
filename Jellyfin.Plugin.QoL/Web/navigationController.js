@@ -28,7 +28,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const LEGACY_VERSION = '12.1.3';
   const LOG = '[JellyfinQoL.NavigationController]';
 
@@ -782,6 +782,40 @@
           )
         ) {
           return this.result(true, 'repeat-blocked', { event });
+        }
+
+        // Playback action sheets are real modal subcontexts even though the
+        // underlying player remains the reported active surface. BACK must
+        // therefore reach ModalNavigation before PLAYER_OWNED/NATIVE_CONTROL.
+        // ControlBridge's synthetic Escape does not dismiss Jellyfin action
+        // sheets, while Scanner's dismissTarget reproduces Jellyfin's native
+        // outside-click close path. Preserve the bridge's local BACK behavior
+        // only while an adjustable control is actively being edited.
+        if (
+          event.action === NAV_ACTION.BACK &&
+          this.isPlayerRoute(model?.route) &&
+          model?.modal?.root?.isConnected &&
+          QoL.airModal?.isActive?.() &&
+          QoL.airControlBridge?.getState?.()
+            ?.adjustableMode !== true
+        ) {
+          const modalResult =
+            QoL.airModal.dispatch(
+              NAV_ACTION.BACK
+            );
+
+          return this.result(
+            !!modalResult?.handled,
+            modalResult?.reason ||
+              'playback-modal-back',
+            {
+              event,
+              modal: modalResult,
+              modalId:
+                model.modal.id || null
+            },
+            true
+          );
         }
 
         if (this.mode === 'NATIVE_CONTROL') {

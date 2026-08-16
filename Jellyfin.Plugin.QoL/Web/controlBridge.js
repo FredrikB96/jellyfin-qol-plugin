@@ -1,4 +1,4 @@
-// Jellyfin QoL - Production Control Bridge v1.0.0
+// Jellyfin QoL - Production Control Bridge v1.0.1
 //
 // Production native-control ownership bridge for contexts where AirNav normally yields:
 //   - text entry: blur/refocus the active field
@@ -11,7 +11,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const LEGACY_VERSION = '6.11';
 
   if (QoL.controlBridgeRuntime?.version === VERSION) {
@@ -27,6 +27,12 @@
         '.videoOsdBottom',
         '.videoOsdTop',
         '.skinHeader.osdHeader'
+      ].join(', '),
+      playerPlayPauseSelector: [
+        '.videoPlayerContainer .btnPause',
+        '.videoPlayerContainer .btnPlay',
+        '.videoOsdBottom .btnPause',
+        '.videoOsdBottom .btnPlay'
       ].join(', '),
       modalRootSelector: [
         '.actionSheet',
@@ -536,6 +542,13 @@
         signalPlayerActivity();
       }
 
+      if (
+        normalized === 'PLAY_PAUSE' &&
+        isPlaybackPlayerPresent()
+      ) {
+        return dispatchPlayerPlayPause();
+      }
+
       const controls = getNativeControls();
       if (!controls.length) {
         // A real action may have just dismissed an inactivity overlay whose
@@ -682,6 +695,66 @@
         reason: 'native-action-not-supported',
         action: normalized
       };
+    }
+
+    function isPlaybackPlayerPresent() {
+      const route = String(
+        location.hash ||
+        `${location.pathname}${location.search}` ||
+        ''
+      ).toLowerCase();
+
+      return (
+        /^#\/video(?:[/?#]|$)/.test(route) ||
+        !!document.querySelector(
+          '.videoPlayerContainer video, .videoPlayerContainer .htmlvideoplayer'
+        )?.isConnected
+      );
+    }
+
+    function dispatchPlayerPlayPause() {
+      const settings = ensureConfig();
+      const candidates = Array.from(
+        document.querySelectorAll(
+          settings.playerPlayPauseSelector
+        )
+      ).filter(element =>
+        element?.isConnected &&
+        !isDisabled(element)
+      );
+      const target =
+        candidates.find(isRendered) ||
+        candidates[0] ||
+        null;
+
+      if (!target) {
+        return {
+          handled: false,
+          reason: 'player-play-pause-control-missing',
+          action: 'PLAY_PAUSE'
+        };
+      }
+
+      try {
+        target.click();
+        return {
+          handled: true,
+          reason: 'player-play-pause-activated',
+          action: 'PLAY_PAUSE',
+          target: describeElement(target)
+        };
+      } catch (error) {
+        console.error(
+          '[AirNav.ControlBridge] player play/pause failed',
+          error
+        );
+        return {
+          handled: false,
+          reason: 'player-play-pause-failed',
+          action: 'PLAY_PAUSE',
+          error: String(error?.message || error)
+        };
+      }
     }
 
     function getNativeControls() {
@@ -1933,6 +2006,7 @@
           directionalNativeNavigation: true,
           activation: true,
           backEscape: true,
+          playerPlayPause: true,
           volumeAdjustmentMode: true,
           playerOsdKeepAlive: true,
           pauseOverlayIntegration: true,
