@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     const LOG = '[JellyfinQoL.UserSettings]';
@@ -111,6 +111,54 @@
         else element.value = value == null ? '' : value;
     }
     function logStub(name, payload) { console.log(STUB, name, payload || ''); }
+    let settingsToastTimer = null;
+
+    function showSettingsToast(message) {
+        const id = 'jellyfin-qol-settings-toast';
+        let toast = document.getElementById(id);
+
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = id;
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+
+            Object.assign(toast.style, {
+                position: 'fixed',
+                left: '50%',
+                bottom: '5vh',
+                transform: 'translate(-50%, 12px)',
+                zIndex: '20000',
+                maxWidth: 'min(90vw, 34em)',
+                padding: '.8em 1.15em',
+                borderRadius: '.45em',
+                background: 'rgba(20, 20, 20, .94)',
+                color: 'white',
+                boxShadow: '0 4px 18px rgba(0, 0, 0, .45)',
+                fontSize: '1rem',
+                lineHeight: '1.3',
+                textAlign: 'center',
+                pointerEvents: 'none',
+                opacity: '0',
+                transition: 'opacity 140ms ease, transform 140ms ease'
+            });
+
+            document.body.appendChild(toast);
+        }
+
+        toast.textContent = String(message || '');
+        toast.style.opacity = '1';
+        toast.style.transform = 'translate(-50%, 0)';
+
+        if (settingsToastTimer) {
+            clearTimeout(settingsToastTimer);
+        }
+
+        settingsToastTimer = setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translate(-50%, 12px)';
+        }, 1800);
+    }
     function notify(message) {
         try { Dashboard.alert(message); } catch (_) { console.log(LOG, message); }
     }
@@ -318,6 +366,7 @@
             setStatus('qolUserSaveStatus', 'Saved.');
             console.log(LOG, 'User + client settings saved.', { user:userState, client:clientState });
             await applyLive('save');
+            showSettingsToast('Settings saved');
         } finally {
             Dashboard.hideLoadingMsg?.();
         }
@@ -343,8 +392,22 @@
             logStub('Enable optional GuardManager companion', clientState.helperBaseUrl);
         }
 
-        logStub('Hydrate final keybind/gesture resolver from saved profile', { activeProfileId:clientState.activeProfileId, profile:selectedProfile() });
-        logStub('Apply final navigation/focus/scroll/player settings to migrated runtime', userState);
+        if (QoL.runtimeSettings?.refresh) {
+            try {
+                await QoL.runtimeSettings.refresh(`user-settings:${reason}`, { forceServer:true });
+                console.log(LOG, 'Production runtime settings refreshed after save/apply.');
+            } catch (error) {
+                console.warn(LOG, 'Production runtime settings refresh failed.', error);
+            }
+        } else {
+            logStub('Refresh production runtime settings after save/apply');
+        }
+
+        // Input/profiles/gestures and the remaining runtime consumers are the
+        // next migration step. The resolved settings are already available at
+        // window.JellyfinQoL.runtimeConfig.
+        logStub('Hydrate final input/profile/gesture runtime from resolved settings', { activeProfileId:clientState.activeProfileId, profile:selectedProfile() });
+        logStub('Apply settings to not-yet-migrated navigation/focus/player consumers', userState);
         logStub('Apply HTPC exit runtime bridge', clientState.htpcExit);
     }
 
@@ -391,6 +454,7 @@
     async function handleCommand(command, button) {
         switch (command) {
             case 'close':
+                showSettingsToast('Settings closed');
                 window.JellyfinQoL?.closeQoLUserSettings?.();
                 return;
             case 'session-off':
@@ -528,6 +592,7 @@
                 userState = clone(savedUserState);
                 clientState = clone(savedClientState);
                 renderAll(); setStatus('qolUserSaveStatus', 'Reverted unsaved changes.');
+                showSettingsToast('Unsaved changes reverted');
                 return;
         }
     }

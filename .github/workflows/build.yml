@@ -17,6 +17,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate repository manifest
+        run: python3 ./scripts/validate-manifest.py ./repository/manifest.json --allow-empty
+
       - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
         with:

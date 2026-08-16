@@ -27,6 +27,13 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override Guid Id => PluginId;
 
+    /// <inheritdoc />
+    public override void OnUninstalling()
+    {
+        Services.ClientBootstrapRegistrationService.TryUnregisterJavaScriptInjectorScripts();
+        base.OnUninstalling();
+    }
+
     /// <summary>
     /// Registers one administrator configuration page plus embedded user-page
     /// resources. Only the admin page is listed in Jellyfin's plugin settings.

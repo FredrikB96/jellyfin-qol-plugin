@@ -1,4 +1,4 @@
-# Build and install — Jellyfin QoL Plugin final settings v2
+# Build and install — Jellyfin QoL Plugin
 
 ## Build
 
@@ -12,6 +12,28 @@ dotnet publish .\Jellyfin.Plugin.QoL\Jellyfin.Plugin.QoL.csproj -c Release
 Output:
 
 `Jellyfin.Plugin.QoL/bin/Release/net9.0/publish/Jellyfin.Plugin.QoL.dll`
+
+To create the same versioned ZIP shape used by the Jellyfin repository:
+
+```powershell
+.\scripts\build-release.ps1
+```
+
+The script reads the four-part version from the project unless one is supplied
+explicitly, packages only `Jellyfin.Plugin.QoL.dll` at the ZIP root, and prints
+the MD5 checksum expected by Jellyfin repository manifests.
+
+## Install from the public repository
+
+Add this URL under `Dashboard -> Plugins -> Repositories`:
+
+```text
+https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/Main/repository/manifest.json
+```
+
+Install **Jellyfin QoL Plugin** from the **General** catalog category and restart
+Jellyfin. The manifest and versioned GitHub release must both be publicly
+reachable; private GitHub assets cannot be installed anonymously by Jellyfin.
 
 ## Manual Docker install for development
 
@@ -28,6 +50,22 @@ docker cp ./Jellyfin.Plugin.QoL/bin/Release/net9.0/publish/Jellyfin.Plugin.QoL.d
 docker restart jellyfin
 ```
 
+## Required client bootstrap host
+
+Install and enable at least one of these plugins before restarting Jellyfin:
+
+- File Transformation (preferred)
+- JavaScript Injector
+
+Jellyfin QoL discovers the installed host at server startup and registers its
+embedded client bootstrap through that host's plugin API. If both are present,
+File Transformation is used and any QoL-owned JavaScript Injector registration
+is removed. Users never paste or maintain a loader script.
+
+The active host is shown under:
+
+`Dashboard -> Plugins -> My Plugins -> Jellyfin QoL Plugin -> Settings`
+
 ## Settings split
 
 Administrator/global settings:
@@ -38,18 +76,8 @@ User settings:
 
 `Profile -> Settings -> QoL Settings`
 
-During development the user settings entry is loaded by the tiny script:
-
-`dev/Load_DLL_User_Settings_Bridge.js`
-
-Load only that file through JavaScript Injector. The actual settings UI,
-per-user API, and persistence are embedded in the DLL.
-
 ## Prototype scripts
 
-Disable the old injected settings UI/services. Keep the navigation runtime
-modules that are still being migrated.
-
-The temporary development bridge may call existing prototype runtime functions
-where they exist. Unimplemented functionality prints `[STUB]` messages instead
-of pretending to be complete.
+All navigation, settings UI, per-user API, persistence and client runtime modules
+are embedded in the DLL. Disable and remove the old prototype scripts, including
+the temporary DLL loader, after the automatic bootstrap host reports active.

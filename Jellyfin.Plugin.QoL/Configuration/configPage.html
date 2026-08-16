@@ -22,6 +22,13 @@
                 </p>
 
                 <div class="verticalSection">
+                    <h3 class="sectionTitle">Client bootstrap</h3>
+                    <div id="qolClientBootstrapStatus" class="fieldDescription">
+                        Checking File Transformation and JavaScript Injector registration…
+                    </div>
+                </div>
+
+                <div class="verticalSection">
                     <h3 class="sectionTitle">General defaults</h3>
 
                     <div class="selectContainer">
@@ -123,7 +130,7 @@
                 <div class="verticalSection">
                     <h3 class="sectionTitle">Administrator / diagnostics</h3>
                     <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-path="debug" /><span>Global debug mode</span></label>
-                    <div class="fieldDescription">Runtime application is intentionally a console stub until the final runtime bridge is migrated.</div>
+                    <div class="fieldDescription">The client runtime is loaded automatically through the registered bootstrap host shown above.</div>
                     <div style="margin-top:1em; display:flex; gap:.6em; flex-wrap:wrap;">
                         <button is="emby-button" type="button" class="raised emby-button" data-command="print-global">Print global settings</button>
                         <button is="emby-button" type="button" class="raised emby-button" data-command="apply-global">Apply global defaults now (stub)</button>
@@ -198,6 +205,25 @@
         PAGE.querySelectorAll('[data-path]').forEach(element => writeElement(element, getPath(state, element.dataset.path)));
     }
 
+    async function loadBootstrapStatus() {
+        const element = PAGE.querySelector('#qolClientBootstrapStatus');
+        try {
+            const response = await fetch(ApiClient.getUrl('JellyfinQoL/Client/bootstrap-status'), {
+                credentials: 'same-origin',
+                cache: 'no-store'
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const status = await response.json();
+            element.textContent = status.registered
+                ? `Active through ${status.host}. No manually pasted loader is required.`
+                : `${status.message} Install and enable either File Transformation or JavaScript Injector, then restart Jellyfin.`;
+            element.style.color = status.registered ? 'var(--jf-palette-success-main, #52b54b)' : 'var(--jf-palette-error-main, #ff5252)';
+        } catch (error) {
+            element.textContent = `Could not read client bootstrap status: ${error.message}`;
+            element.style.color = 'var(--jf-palette-error-main, #ff5252)';
+        }
+    }
+
     async function load() {
         Dashboard.showLoadingMsg();
         try {
@@ -206,6 +232,7 @@
             try { parsed = JSON.parse(config.SettingsJson || config.settingsJson || '{}'); } catch (error) { console.warn(LOG, 'Invalid saved JSON; using defaults.', error); }
             state = merge(DEFAULTS, parsed.global || parsed || {});
             render();
+            await loadBootstrapStatus();
             console.log(LOG, 'Global settings loaded.', state);
         } finally {
             Dashboard.hideLoadingMsg();
