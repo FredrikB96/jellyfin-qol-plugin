@@ -2,9 +2,9 @@
     'use strict';
 
     const QoL = window.JellyfinQoL = window.JellyfinQoL || {};
-    if (QoL.runtimeSettings?.version === '1.0.0') return;
+    if (QoL.runtimeSettings?.version === '1.0.1') return;
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const LOG = '[JellyfinQoL.RuntimeSettings]';
     const USER_SCHEMA_VERSION = 1;
     const CLIENT_SCHEMA_VERSION = 1;
@@ -533,21 +533,22 @@
     // Old QoL.airKeybinds remains authoritative until Part 3 takeover.
     // ---------------------------------------------------------------------
 
+    const ALL_INPUT_CONTEXTS = Object.freeze(['page', 'modal', 'text', 'player']);
     const PROFILE_ACTION_META = Object.freeze({
-        UP: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true }),
-        DOWN: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true }),
-        LEFT: Object.freeze({ critical:true, allowRepeat:true }),
-        RIGHT: Object.freeze({ critical:true, allowRepeat:true }),
-        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false }),
-        BACK: Object.freeze({ critical:true, allowRepeat:false }),
-        ENTER_ACTIONS: Object.freeze({ critical:false, allowRepeat:false }),
-        MENU: Object.freeze({ critical:false, allowRepeat:false }),
-        HOME: Object.freeze({ critical:false, allowRepeat:false }),
-        PLAY_PAUSE: Object.freeze({ critical:false, allowRepeat:false }),
-        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true }),
-        TOGGLE_SEARCH_HANDOFF: Object.freeze({ critical:false, allowRepeat:false, global:true }),
-        TOGGLE_SESSION_NAV: Object.freeze({ critical:false, allowRepeat:false, global:true }),
-        EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true })
+        UP: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true, contexts:ALL_INPUT_CONTEXTS }),
+        DOWN: Object.freeze({ critical:true, allowRepeat:true, textHandoff:true, contexts:ALL_INPUT_CONTEXTS }),
+        LEFT: Object.freeze({ critical:true, allowRepeat:true, contexts:ALL_INPUT_CONTEXTS }),
+        RIGHT: Object.freeze({ critical:true, allowRepeat:true, contexts:ALL_INPUT_CONTEXTS }),
+        ACTIVATE: Object.freeze({ critical:true, allowRepeat:false, contexts:ALL_INPUT_CONTEXTS }),
+        BACK: Object.freeze({ critical:true, allowRepeat:false, contexts:ALL_INPUT_CONTEXTS }),
+        ENTER_ACTIONS: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
+        MENU: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
+        HOME: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['page']) }),
+        PLAY_PAUSE: Object.freeze({ critical:false, allowRepeat:false, contexts:Object.freeze(['player']) }),
+        TOGGLE_CONTROL: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['player', 'modal', 'text']) }),
+        TOGGLE_SEARCH_HANDOFF: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:Object.freeze(['page', 'text']) }),
+        TOGGLE_SESSION_NAV: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS }),
+        EXIT_JELLYFIN: Object.freeze({ critical:false, allowRepeat:false, global:true, contexts:ALL_INPUT_CONTEXTS })
     });
 
     const profileMutationListeners = new Map();
@@ -793,6 +794,17 @@
         return String(binding?.gesture || (profileGetActionMeta(binding?.action).allowRepeat ? 'repeat' : 'single')).toLowerCase();
     }
 
+    function profileActionContexts(action) {
+        const contexts = PROFILE_ACTION_META[String(action || '').toUpperCase()]?.contexts;
+        return new Set(Array.isArray(contexts) && contexts.length ? contexts : ALL_INPUT_CONTEXTS);
+    }
+
+    function profileActionContextsOverlap(leftAction, rightAction) {
+        const left = profileActionContexts(leftAction);
+        const right = profileActionContexts(rightAction);
+        return [...left].some(context => right.has(context));
+    }
+
     function profileAnalyzeConflicts(binding, profileId = null) {
         const normalized = profileNormalizeBinding(binding, 0);
         if (!normalized) return [];
@@ -800,7 +812,8 @@
             .filter(item => item.id !== normalized.id)
             .filter(item => profileSamePhysicalTrigger(item, normalized))
             .filter(item => profileGesture(item) === profileGesture(normalized))
-            .map(item => ({ binding:clone(item), sameAction:item.action === normalized.action, sameGesture:true, criticalAction:profileGetActionMeta(item.action).critical === true, safeToKeepBoth:false }));
+            .filter(item => profileActionContextsOverlap(item.action, normalized.action))
+            .map(item => ({ binding:clone(item), sameAction:item.action === normalized.action, sameGesture:true, contextOverlap:true, criticalAction:profileGetActionMeta(item.action).critical === true, safeToKeepBoth:false }));
     }
 
     function profileGetCriticalActionsWithoutBindings(profileId = null, bindingsOverride = null) {
@@ -1118,7 +1131,7 @@
         let legacyBindings = [];
         try { legacyBindings = legacy?.getBindings?.() || []; } catch (_) {}
         return {
-            version:'1.2.0-mutate',
+            version:'1.2.1-context',
             ready:missing.length === 0,
             mutationReady:missing.length === 0,
             readOnly:false,
@@ -1129,7 +1142,7 @@
             activeProfileId:profileGetActiveProfileId(),
             productionBindingCount:profileGetBindings().length,
             legacyBindingCount:Array.isArray(legacyBindings) ? legacyBindings.length : null,
-            conflictRule:'same-physical-trigger+same-gesture',
+            conflictRule:'same-physical-trigger+same-gesture+overlapping-input-context',
             gestureResolutionActive:false,
             serverPersistence:{
                 lastPersistAt:profileLastPersistAt,
@@ -1143,7 +1156,7 @@
         const activeProfileId = profileGetActiveProfileId();
         const profiles = profileItems();
         return {
-            version:'1.2.0-mutate',
+            version:'1.2.1-context',
             source:config?.source || null,
             authenticated:config?.authenticated === true,
             activeProfileId,
@@ -1155,7 +1168,7 @@
             persistenceReady:true,
             takeoverActive:false,
             compatibilityReady:true,
-            conflictRule:'same-physical-trigger+same-gesture',
+            conflictRule:'same-physical-trigger+same-gesture+overlapping-input-context',
             gestureResolutionActive:false,
             lastPersistAt:profileLastPersistAt,
             lastPersistError:profileLastPersistError ? String(profileLastPersistError?.message || profileLastPersistError) : null
@@ -1163,7 +1176,7 @@
     }
 
     QoL.profileRuntime = Object.freeze({
-        version:'1.2.0-mutate',
+        version:'1.2.1-context',
         ACTION_META:PROFILE_ACTION_META,
         getState:profileGetState,
         getActiveProfileId:profileGetActiveProfileId,

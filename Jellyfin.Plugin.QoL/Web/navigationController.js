@@ -28,7 +28,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.0.1';
   const LEGACY_VERSION = '12.1.3';
   const LOG = '[JellyfinQoL.NavigationController]';
 
@@ -442,16 +442,19 @@
           return;
         }
 
+        const activeSurfaceHint =
+          this.getEffectiveSurface(model);
+
         if (
-          model.activeSurfaceHint !== 'page' &&
+          activeSurfaceHint !== 'page' &&
           QoL.airItemActions?.isActive?.()
         ) {
           QoL.airItemActions.exit?.(
-            `surface-changed:${model.activeSurfaceHint}`
+            `surface-changed:${activeSurfaceHint}`
           );
         }
 
-        if (model.activeSurfaceHint === 'player') {
+        if (activeSurfaceHint === 'player') {
           if (this.nativeControlOverride) {
             QoL.airControlBridge?.enterNativeSurface?.('player');
             this.updateMode('NATIVE_CONTROL', { reason, surface: 'player' });
@@ -461,7 +464,7 @@
           return;
         }
 
-        if (model.activeSurfaceHint === 'modal') {
+        if (activeSurfaceHint === 'modal') {
           if (this.nativeControlOverride) {
             QoL.airControlBridge?.enterNativeSurface?.('modal');
             this.updateMode('NATIVE_CONTROL', { reason, surface: 'modal' });
@@ -679,7 +682,7 @@
           event.phase !== 'release' &&
           (
             this.mode === 'PAGE_NAVIGATION' ||
-            model?.activeSurfaceHint === 'page'
+            this.getEffectiveSurface(model) === 'page'
           )
         ) {
           const prepared =
@@ -2071,7 +2074,7 @@
           return this.result(false, 'control-bridge-unavailable', { event });
         }
 
-        const surface = model?.activeSurfaceHint || 'page';
+        const surface = this.getEffectiveSurface(model);
 
         if (
           surface === 'player' ||
@@ -2148,6 +2151,44 @@
           `${location.pathname}${location.search}` ||
           '/'
         );
+      }
+
+      isPlayerRoute(route = null) {
+        const value = String(
+          route || this.getCurrentRoute() || ''
+        ).trim().toLowerCase();
+
+        return (
+          /^#\/video(?:[/?#]|$)/.test(value) ||
+          /^\/video(?:[/?#]|$)/.test(value)
+        );
+      }
+
+      getEffectiveSurface(model = null) {
+        const reported =
+          model?.activeSurfaceHint || 'page';
+
+        if (reported !== 'page') {
+          return reported;
+        }
+
+        const route =
+          model?.route || this.getCurrentRoute();
+        const playerRoot = document.querySelector(
+          '.videoPlayerContainer, .videoOsdBottom'
+        );
+
+        // Defensive ownership guard: Scanner is the canonical source, but a
+        // hidden Media Player OSD must never turn an active playback route into
+        // page navigation between model publications.
+        if (
+          this.isPlayerRoute(route) &&
+          playerRoot?.isConnected
+        ) {
+          return 'player';
+        }
+
+        return reported;
       }
 
       normalizePageHistoryRoute(
