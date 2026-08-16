@@ -50,3 +50,7 @@ The repository and release assets must be publicly reachable for repository inst
 See [BUILD_AND_INSTALL.md](BUILD_AND_INSTALL.md), [SETTINGS_ARCHITECTURE.md](SETTINGS_ARCHITECTURE.md), and [GITHUB_SETUP.md](GITHUB_SETUP.md).
 
 All runtime modules and user-interface resources are embedded in the plugin DLL. Remove the old prototype scripts and temporary DLL loader after the automatic bootstrap host reports active.
+
+## License
+
+Jellyfin QoL Plugin is available under the [MIT License](LICENSE).

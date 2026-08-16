@@ -35,7 +35,7 @@ The public installation path does not use this runner; users install release ZIP
 
 1. Commit and push changes to `dev`.
 2. Wait for **Build plugin** and **Deploy dev to Jellyfin** to succeed.
-3. Test the deployed DLL on `http://192.168.0.72:8097` and Jellyfin Media Player.
+3. Test the deployed DLL on the development Jellyfin server and Jellyfin Media Player.
 4. Merge the verified `dev` commit into `Main`.
 
 ## Release
