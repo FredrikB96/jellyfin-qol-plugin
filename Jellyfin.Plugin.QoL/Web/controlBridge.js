@@ -1,4 +1,4 @@
-// Jellyfin QoL - Production Control Bridge v1.0.1
+// Jellyfin QoL - Production Control Bridge v1.0.2
 //
 // Production native-control ownership bridge for contexts where AirNav normally yields:
 //   - text entry: blur/refocus the active field
@@ -11,7 +11,7 @@
 (function (QoL) {
   'use strict';
 
-  const VERSION = '1.0.1';
+  const VERSION = '1.0.2';
   const LEGACY_VERSION = '6.11';
 
   if (QoL.controlBridgeRuntime?.version === VERSION) {
@@ -26,7 +26,10 @@
         '.videoPlayerContainer',
         '.videoOsdBottom',
         '.videoOsdTop',
-        '.skinHeader.osdHeader'
+        '.skinHeader.osdHeader',
+        // Jellyfin's MediaSegments skip UI (also styled by Intro Skipper) is
+        // a floating playback surface outside the normal OSD containers.
+        '.skip-button-container'
       ].join(', '),
       playerPlayPauseSelector: [
         '.videoPlayerContainer .btnPause',
@@ -118,6 +121,18 @@
       horizontalRowTolerancePx: 34,
       horizontalMinOverlapRatio: 0.35,
 
+      // Native action sheets can contain more entries than fit onscreen (most
+      // noticeably subtitle/audio track lists). DOM focus intentionally uses
+      // preventScroll, so AirNav owns the smallest scrollable ancestor instead.
+      nativeScrollMarginPx: 16,
+
+      // OSD visibility is asynchronous in jellyfin-web. Taking control while
+      // it is idle can reveal the controls one or more frames after ownership
+      // changes. Retry focus acquisition briefly rather than requiring a real
+      // mouse movement before a control receives the AirNav focus outline.
+      nativeFocusRecoveryAttempts: 5,
+      nativeFocusRecoveryDelayMs: 75,
+
       // Releasing F6 should hand ownership back in the same state Jellyfin
       // normally reaches after idle: controls hidden and mouseIdle restored.
       hidePlayerOsdOnRelease: true,
@@ -163,6 +178,8 @@
     let playerKeepAliveTimer = null;
     let playerForceTimer = null;
     let playerHideTimer = null;
+    let nativeFocusRecoveryTimer = null;
+    let nativeFocusRecoveryAttempt = 0;
     let playerActivityPulse = 0;
     let playerActivityBroadcastPulse = 0;
     let lastMeaningfulPlayerActivityAt = 0;
@@ -286,6 +303,7 @@
         html.${settings.forcePlayerOsdClass}:not(.pause-screen-active) body .videoOsdBottom,
         html.${settings.forcePlayerOsdClass}:not(.pause-screen-active) body .videoOsdTop,
         html.${settings.forcePlayerOsdClass}:not(.pause-screen-active) body .skinHeader.osdHeader {
+          display: flex !important;
           opacity: 1 !important;
           visibility: visible !important;
           pointer-events: auto !important;
@@ -374,6 +392,106 @@
       return !!savedTextElement?.isConnected;
     }
 
+    function cancelNativeFocusRecovery() {
+      if (nativeFocusRecoveryTimer) {
+        clearTimeout(nativeFocusRecoveryTimer);
+        nativeFocusRecoveryTimer = null;
+      }
+      nativeFocusRecoveryAttempt = 0;
+    }
+
+    function scheduleNativeFocusRecovery(surface, reason = 'native-focus-recovery') {
+      if (!surface || nativeSurface !== surface) return false;
+
+      cancelNativeFocusRecovery();
+
+      const settings = ensureConfig();
+      const maxAttempts = Math.max(
+        1,
+        Number(settings.nativeFocusRecoveryAttempts) || 5
+      );
+      const delayMs = Math.max(
+        16,
+        Number(settings.nativeFocusRecoveryDelayMs) || 75
+      );
+
+      const attemptRecovery = () => {
+        nativeFocusRecoveryTimer = null;
+
+        if (nativeSurface !== surface) {
+          nativeFocusRecoveryAttempt = 0;
+          return;
+        }
+
+        if (
+          surface === 'player' &&
+          isPauseOverlayActive()
+        ) {
+          nativeFocusRecoveryAttempt = 0;
+          return;
+        }
+
+        if (surface === 'player') {
+          forcePlayerOsdVisibility();
+          signalPlayerActivity();
+        }
+
+        const controls = getNativeControls();
+
+        if (controls.length) {
+          const current = (
+            nativeFocusedElement?.isConnected &&
+            controls.includes(nativeFocusedElement)
+          )
+            ? nativeFocusedElement
+            : null;
+          const active = controls.includes(document.activeElement)
+            ? document.activeElement
+            : null;
+          const target = current || active || chooseInitialControl(controls);
+
+          if (target) {
+            renderNativeFocus(target);
+          }
+
+          log('native focus recovered', {
+            surface,
+            reason,
+            attempt: nativeFocusRecoveryAttempt + 1,
+            controls: controls.length,
+            target: describeElement(target)
+          });
+
+          nativeFocusRecoveryAttempt = 0;
+          return;
+        }
+
+        nativeFocusRecoveryAttempt += 1;
+
+        if (nativeFocusRecoveryAttempt >= maxAttempts) {
+          log('native focus recovery exhausted', {
+            surface,
+            reason,
+            attempts: nativeFocusRecoveryAttempt
+          });
+          nativeFocusRecoveryAttempt = 0;
+          return;
+        }
+
+        nativeFocusRecoveryTimer = setTimeout(
+          attemptRecovery,
+          delayMs
+        );
+      };
+
+      nativeFocusRecoveryTimer = setTimeout(
+        attemptRecovery,
+        0
+      );
+
+      return true;
+    }
+
     function enterNativeSurface(surface = 'player') {
       ensureStyle();
       cancelScheduledPlayerHide();
@@ -387,17 +505,27 @@
       // even though document.activeElement may still be the previous Mute
       // button (range wrappers intentionally do not receive DOM focus).
       if (nativeSurface === surface) {
+        const controls = getNativeControls();
+
+        if (!nativeFocusedElement?.isConnected && controls.length === 0) {
+          scheduleNativeFocusRecovery(
+            surface,
+            'idempotent-enter-no-controls'
+          );
+        }
+
         return {
           changed: false,
           reason: 'native-surface-already-active',
           surface,
-          controls: getNativeControls().length,
+          controls: controls.length,
           target: describeElement(nativeFocusedElement),
           pauseOverlayActive: isPauseOverlayActive()
         };
       }
 
       // Actual ownership transition.
+      cancelNativeFocusRecovery();
       stopPlayerKeepAlive();
       stopPlayerVisibilityForce();
       releaseForcedPlayerOsdVisibility();
@@ -420,7 +548,17 @@
       const controls = getNativeControls();
       if (!controls.length) {
         clearNativeFocus();
-        return { changed: false, reason: 'no-native-controls', surface };
+        scheduleNativeFocusRecovery(
+          surface,
+          'enter-no-native-controls'
+        );
+        return {
+          changed: true,
+          reason: 'native-surface-entered-awaiting-controls',
+          surface,
+          controls: 0,
+          target: null
+        };
       }
 
       const active = document.activeElement;
@@ -446,6 +584,7 @@
     function exitNativeSurface() {
       const previous = nativeSurface;
 
+      cancelNativeFocusRecovery();
       stopPlayerVisibilityForce();
       releaseForcedPlayerOsdVisibility();
       stopPlayerKeepAlive();
@@ -505,8 +644,14 @@
       const controls = getNativeControls();
       if (!controls.length) {
         clearNativeFocus();
+        scheduleNativeFocusRecovery(
+          surface,
+          'refresh-no-native-controls'
+        );
         return { changed: false, reason: 'no-native-controls', surface };
       }
+
+      cancelNativeFocusRecovery();
 
       if (
         nativeFocusedElement?.isConnected &&
@@ -554,6 +699,13 @@
         // A real action may have just dismissed an inactivity overlay whose
         // CSS/DOM has not settled yet. Preserve the logical target instead of
         // resetting to Pause/Mute on the next model refresh.
+        if (nativeSurface === 'player') {
+          scheduleNativeFocusRecovery(
+            nativeSurface,
+            `action-${normalized.toLowerCase()}-no-controls`
+          );
+        }
+
         if (
           nativeSurface === 'player' &&
           nativeFocusedElement?.isConnected
@@ -566,8 +718,16 @@
           };
         }
 
-        return { handled: false, reason: 'no-native-controls' };
+        return {
+          handled: nativeSurface === 'player',
+          reason: nativeSurface === 'player'
+            ? 'native-controls-waking-after-activity'
+            : 'no-native-controls',
+          action: normalized
+        };
       }
+
+      cancelNativeFocusRecovery();
 
       let current = (
         nativeFocusedElement?.isConnected &&
@@ -1629,6 +1789,81 @@
       return true;
     }
 
+    function findScrollableAncestor(element) {
+      let parent = element?.parentElement || null;
+
+      while (
+        parent &&
+        parent !== document.body &&
+        parent !== document.documentElement
+      ) {
+        const style = getComputedStyle(parent);
+        const overflowY = String(style.overflowY || '').toLowerCase();
+        const hasScrollableRange =
+          parent.scrollHeight > parent.clientHeight + 2;
+        const ownsVerticalOverflow =
+          /^(auto|scroll|overlay)$/.test(overflowY) ||
+          (
+            hasScrollableRange &&
+            overflowY !== 'visible'
+          );
+
+        if (hasScrollableRange && ownsVerticalOverflow) {
+          return parent;
+        }
+
+        parent = parent.parentElement;
+      }
+
+      return null;
+    }
+
+    function revealNativeFocusedElement(element) {
+      if (!element?.isConnected) return false;
+
+      const container = findScrollableAncestor(element);
+      if (!container?.isConnected) return false;
+
+      const margin = Math.max(
+        0,
+        Number(ensureConfig().nativeScrollMarginPx) || 0
+      );
+      const itemRect = element.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const topLimit = containerRect.top + margin;
+      const bottomLimit = containerRect.bottom - margin;
+
+      let delta = 0;
+
+      if (itemRect.top < topLimit) {
+        delta = itemRect.top - topLimit;
+      } else if (itemRect.bottom > bottomLimit) {
+        delta = itemRect.bottom - bottomLimit;
+      }
+
+      if (Math.abs(delta) < 1) return false;
+
+      const maxScrollTop = Math.max(
+        0,
+        container.scrollHeight - container.clientHeight
+      );
+      const nextScrollTop = Math.max(
+        0,
+        Math.min(
+          maxScrollTop,
+          container.scrollTop + delta
+        )
+      );
+
+      if (Math.abs(nextScrollTop - container.scrollTop) < 1) {
+        return false;
+      }
+
+      container.scrollTop = nextScrollTop;
+
+      return true;
+    }
+
     function renderNativeFocus(element) {
       if (!element?.isConnected) return false;
 
@@ -1657,6 +1892,13 @@
           try { element.focus(); } catch (_) {}
         }
       }
+
+      // DOM focus deliberately does not scroll. Reveal only the nearest
+      // scrollable native surface so long subtitle/audio lists follow the
+      // selected item without moving the whole playback page.
+      revealNativeFocusedElement(
+        nativeFocusVisualElement || element
+      );
 
       return true;
     }
@@ -1832,6 +2074,11 @@
           startPlayerVisibilityForce();
           startPlayerKeepAlive();
         }
+
+        scheduleNativeFocusRecovery(
+          nativeSurface,
+          'settings-reloaded'
+        );
       }
 
       return {
@@ -1849,6 +2096,12 @@
             next.forcePlayerOsdVisible !== false,
           hidePlayerOsdOnRelease:
             next.hidePlayerOsdOnRelease !== false,
+          nativeScrollMarginPx:
+            Number(next.nativeScrollMarginPx) || 0,
+          nativeFocusRecoveryAttempts:
+            Number(next.nativeFocusRecoveryAttempts) || 0,
+          nativeFocusRecoveryDelayMs:
+            Number(next.nativeFocusRecoveryDelayMs) || 0,
           focusOutlineWidthPx:
             Number(next.focusOutlineWidthPx) || 0,
           focusOutlineOffsetPx:
@@ -1875,6 +2128,10 @@
           isNavigableAdjustable(nativeFocusedElement)
             ? getAdjustableValue(nativeFocusedElement)
             : null,
+        nativeFocusRecoveryActive: !!nativeFocusRecoveryTimer,
+        nativeFocusRecoveryAttempt,
+        nativeScrollMarginPx:
+          Number(ensureConfig().nativeScrollMarginPx) || 0,
         playerKeepAliveActive: !!playerKeepAliveTimer,
         playerKeepAliveMs: Number(ensureConfig().playerKeepAliveMs) || 0,
         forcePlayerOsdVisible:
@@ -1921,12 +2178,15 @@
         nativeEnterIsIdempotent: true,
         pauseOverlayPreservesNativeSelection: true,
         adjustableTargetStrategy: 'stable-wrapper',
+        nativeScrollStrategy: 'nearest-scrollable-ancestor',
+        playerFloatingControlSelector: '.skip-button-container',
         horizontalPlayerStrategy: 'immediate-row-neighbour'
       };
     }
 
     function destroy() {
       cancelScheduledPlayerHide();
+      cancelNativeFocusRecovery();
       stopPlayerVisibilityForce();
       releaseForcedPlayerOsdVisibility();
       stopPlayerKeepAlive();
@@ -2009,6 +2269,9 @@
           playerPlayPause: true,
           volumeAdjustmentMode: true,
           playerOsdKeepAlive: true,
+          playerOsdWakeRecovery: true,
+          nativeScrollableLists: true,
+          floatingPlayerControls: true,
           pauseOverlayIntegration: true,
           runtimeSettingsReload: true
         },
