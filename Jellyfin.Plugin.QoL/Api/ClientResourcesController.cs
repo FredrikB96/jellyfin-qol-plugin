@@ -33,6 +33,7 @@ public sealed class ClientResourcesController : ControllerBase
             ["gestureResolverDirectionalPolicy.js"] = "Jellyfin.Plugin.QoL.Web.gestureResolverDirectionalPolicy.js",
             ["universalInput.js"] = "Jellyfin.Plugin.QoL.Web.universalInput.js",
             ["controlBridge.js"] = "Jellyfin.Plugin.QoL.Web.controlBridge.js",
+            ["playerOsdWake.js"] = "Jellyfin.Plugin.QoL.Web.playerOsdWake.js",
             ["guardManager.js"] = "Jellyfin.Plugin.QoL.Web.guardManager.js",
             ["navigationScanner.js"] = "Jellyfin.Plugin.QoL.Web.navigationScanner.js",
             ["navigationFocus.js"] = "Jellyfin.Plugin.QoL.Web.navigationFocus.js",
@@ -138,6 +139,7 @@ public sealed class ClientResourcesController : ControllerBase
             var directionalPolicyStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["gestureResolverDirectionalPolicy.js"]);
             var universalInputStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["universalInput.js"]);
             var controlBridgeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["controlBridge.js"]);
+            var playerOsdWakeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["playerOsdWake.js"]);
             var guardManagerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["guardManager.js"]);
             var navigationScannerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationScanner.js"]);
             var navigationFocusStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationFocus.js"]);
@@ -148,7 +150,7 @@ public sealed class ClientResourcesController : ControllerBase
             var navigationModalStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationModal.js"]);
             var navigationControllerStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["navigationController.js"]);
             var launcherRuntimeStream = typeof(Plugin).Assembly.GetManifestResourceStream(Resources["launcherRuntime.js"]);
-            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || guardManagerStream is null || navigationScannerStream is null || navigationFocusStream is null || navigationGeometryStream is null || navigationScrollStream is null || navigationItemActionsStream is null || navigationPageFormStream is null || navigationModalStream is null || navigationControllerStream is null || launcherRuntimeStream is null)
+            if (inputRegistryStream is null || gestureResolverStream is null || directionalPolicyStream is null || universalInputStream is null || controlBridgeStream is null || playerOsdWakeStream is null || guardManagerStream is null || navigationScannerStream is null || navigationFocusStream is null || navigationGeometryStream is null || navigationScrollStream is null || navigationItemActionsStream is null || navigationPageFormStream is null || navigationModalStream is null || navigationControllerStream is null || launcherRuntimeStream is null)
             {
                 stream.Dispose();
                 inputRegistryStream?.Dispose();
@@ -156,6 +158,7 @@ public sealed class ClientResourcesController : ControllerBase
                 directionalPolicyStream?.Dispose();
                 universalInputStream?.Dispose();
                 controlBridgeStream?.Dispose();
+                playerOsdWakeStream?.Dispose();
                 guardManagerStream?.Dispose();
                 navigationScannerStream?.Dispose();
                 navigationFocusStream?.Dispose();
@@ -175,6 +178,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (directionalPolicyStream)
             using (universalInputStream)
             using (controlBridgeStream)
+            using (playerOsdWakeStream)
             using (guardManagerStream)
             using (navigationScannerStream)
             using (navigationFocusStream)
@@ -191,6 +195,7 @@ public sealed class ClientResourcesController : ControllerBase
             using (var directionalPolicyReader = new StreamReader(directionalPolicyStream))
             using (var universalInputReader = new StreamReader(universalInputStream))
             using (var controlBridgeReader = new StreamReader(controlBridgeStream))
+            using (var playerOsdWakeReader = new StreamReader(playerOsdWakeStream))
             using (var guardManagerReader = new StreamReader(guardManagerStream))
             using (var navigationScannerReader = new StreamReader(navigationScannerStream))
             using (var navigationFocusReader = new StreamReader(navigationFocusStream))
@@ -207,6 +212,7 @@ public sealed class ClientResourcesController : ControllerBase
                 var directionalPolicy = directionalPolicyReader.ReadToEnd();
                 var universalInput = universalInputReader.ReadToEnd();
                 var controlBridge = controlBridgeReader.ReadToEnd();
+                var playerOsdWake = playerOsdWakeReader.ReadToEnd();
                 var guardManager = guardManagerReader.ReadToEnd();
                 var navigationScanner = navigationScannerReader.ReadToEnd();
                 var navigationFocus = navigationFocusReader.ReadToEnd();
@@ -224,6 +230,7 @@ public sealed class ClientResourcesController : ControllerBase
                     directionalPolicy + "\n" +
                     universalInput + "\n" +
                     controlBridge + "\n" +
+                    playerOsdWake + "\n" +
                     guardManager + "\n" +
                     navigationScanner + "\n" +
                     navigationFocus + "\n" +
