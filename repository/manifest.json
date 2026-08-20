@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/FredrikB96/jellyfin-qol-plugin/refs/heads/Main/repository/jellyfin-qol-logo.png",
     "versions": [
       {
+        "version": "1.0.2.0",
+        "changelog": "Release 1.0.2.0. See GitHub release notes for details.",
+        "targetAbi": "10.11.8.0",
+        "sourceUrl": "https://github.com/FredrikB96/jellyfin-qol-plugin/releases/download/v1.0.2.0/JellyfinQoL-1.0.2.0.zip",
+        "checksum": "40955d4edc7dcf327bdfe47543fcfa33",
+        "timestamp": "2026-08-20T15:33:24Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Release 1.0.1.0. See GitHub release notes for details.",
         "targetAbi": "10.11.8.0",
