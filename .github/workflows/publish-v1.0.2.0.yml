@@ -1,3 +1,4 @@
+# One-shot publication workflow for v1.0.2.0. It removes itself after publishing.
 name: Publish Jellyfin QoL v1.0.2.0
 
 on:
@@ -59,7 +60,7 @@ jobs:
           set -euo pipefail
           TAG='v1.0.2.0'
           ZIP='${{ steps.package.outputs.zip }}'
-          TARGET_SHA="$(git rev-parse HEAD^)"
+          TARGET_SHA="$(git rev-parse HEAD^^)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" \
               "./artifacts/release/$ZIP" \
@@ -115,7 +116,7 @@ jobs:
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.email '4189823+github-actions[bot]@users.noreply.github.com'
           git rm --ignore-unmatch .github/workflows/publish-v1.0.2.0.yml
           git add repository/manifest.json
           git commit -m 'chore: publish plugin manifest for v1.0.2.0'
